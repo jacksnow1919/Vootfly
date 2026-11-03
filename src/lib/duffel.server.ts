@@ -55,6 +55,7 @@ type DuffelOffer = {
     refund_before_departure?: { allowed?: boolean } | null;
     change_before_departure?: { allowed?: boolean } | null;
   } | null;
+  passengers?: { id?: string; type?: string | null }[];
 };
 type DuffelOfferRequestResponse = {
   data?: { id: string; offers?: DuffelOffer[] };
@@ -153,7 +154,11 @@ function sliceInfo(slice: DuffelSlice | undefined) {
 function normaliseOffer(offer: DuffelOffer, requestedCabin: string): PkfareNormalisedFare | null {
   const out = sliceInfo(offer.slices?.[0]);
   if (!out) return null;
-  const price = Number(offer.total_amount ?? "0");
+  // total_amount covers the whole party, but the site labels and books prices per person,
+  // so a party of two used to show their total as "per person" and be doubled at checkout
+  // (found 3 Nov 2026: $300 for one traveller, $599 "per person" for two).
+  const total = Number(offer.total_amount ?? "0");
+  const price = total / Math.max(1, offer.passengers?.length ?? 1);
   if (!Number.isFinite(price) || price <= 0) return null;
 
   // The cabin the AIRLINE actually priced (from Duffel's per-segment passenger
@@ -193,6 +198,7 @@ function normaliseOffer(offer: DuffelOffer, requestedCabin: string): PkfareNorma
     cabin,
     currency: (offer.total_currency || "USD").toUpperCase(),
     price: Math.round(price),
+    totalPrice: Math.round(total),
     refundable: offer.conditions?.refund_before_departure?.allowed === true,
     ...(ret
       ? {

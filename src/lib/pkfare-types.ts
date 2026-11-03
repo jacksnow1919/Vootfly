@@ -133,7 +133,7 @@ export interface PkfareNormalisedFare {
   terms?: SupplierFareTerms;
   /**
    * The whole trip for every traveller, as the supplier sent it, when `price`
-   * is per person (MContent). The EazAir feed's total_price uses this.
+   * is per person (MContent, Duffel). The EazAir feed's total_price uses this.
    */
   totalPrice?: number;
 }

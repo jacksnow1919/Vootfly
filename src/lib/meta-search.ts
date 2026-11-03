@@ -130,17 +130,20 @@ const CABIN_MAP: Record<
 
 export const buildDeepLink = (
   req: MetaSearchRequest,
-  totalPrice: number,
+  perPersonPrice: number,
   airline: string,
   flightNo?: string,
 ) => {
+  // Checkout multiplies the per-person price by the travellers, so the link carries both.
+  const party = req.passengers.adults + req.passengers.children + req.passengers.infants;
   const params = new URLSearchParams({
     origin: req.origin,
     destination: req.destination,
     depart: req.departure_date,
     return: req.trip_type === "round_trip" && req.return_date ? req.return_date : "",
     cabin: req.cabin_class,
-    price: String(totalPrice),
+    price: String(perPersonPrice),
+    ...(party > 1 ? { passengers: String(party) } : {}),
     // The airline's name and the real flight number, so checkout shows the
     // flight the traveller picked on EazAir instead of a placeholder.
     airline,
@@ -201,20 +204,17 @@ export const resolveResults = async (req: MetaSearchRequest): Promise<MetaSearch
   const results: MetaSearchResult[] = [];
   for (const fare of cheapest) {
     // total_price must be the whole trip for the whole party.
-    // - MContent prices per person: its own TotalPrice is used.
+    // - MContent and Duffel price per person: the supplier's whole-party total is used.
     // - PKFARE prices per adult (adult fare plus taxes and fees), with no
     //   child or infant fares read: it is the total only for one traveller,
     //   so for a larger party the fare is not sent, never multiplied.
-    // - Duffel's total_amount already covers every passenger.
     const party = req.passengers.adults + req.passengers.children + req.passengers.infants;
     const total =
-      fare.supplier === "mcontent"
-        ? fare.totalPrice
-        : fare.supplier === "pkfare"
-          ? party === 1
-            ? fare.price
-            : undefined
-          : fare.price;
+      fare.supplier === "pkfare"
+        ? party === 1
+          ? fare.price
+          : undefined
+        : fare.totalPrice;
     if (total === undefined) continue;
     const departISO = departureIso(fare.departDate, fare.departTime);
     if (!departISO) continue; // no real timestamp to report; skip rather than invent one
