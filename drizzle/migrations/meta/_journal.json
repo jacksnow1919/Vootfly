@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788337640342,
+      "tag": "0000_restrict_anon_bookings_and_seo_pages_columns",
+      "breakpoints": true
+    }
+  ]
+}
