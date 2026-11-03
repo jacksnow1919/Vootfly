@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { Plane, Clock, Briefcase, GitCompare, X, TrendingDown, Loader2, SlidersHorizontal, ChevronLeft } from "lucide-react";
 import { searchFlightsWithMeta, type PkfareNormalisedFare } from "@/services/flightSearch";
-import { FlexibleDateStrip } from "@/components/site/FlexibleDateStrip";
 import { MotionLogo } from "@/components/site/MotionLogo";
 import { FareWatchCard } from "@/components/site/FareWatchCard";
 import { getSearchWatch } from "@/lib/search-watch.functions";
@@ -653,14 +652,6 @@ function SearchPage() {
           <SidebarFilters bounds={bounds} filters={filters} setFilters={setFilters} />
         </aside>
         <div className="min-w-0 space-y-4">
-          <FlexibleDateStrip
-            origin={origin}
-            destination={destination}
-            date={date}
-            passengers={passengers}
-            cabin={cabin}
-            currency={currency || "USD"}
-          />
           {!isLoading && !noResults ? (
             <div className="flex items-center gap-2">
               <div className="flex flex-1 overflow-hidden rounded-xl border border-border bg-card">

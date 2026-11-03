@@ -94,21 +94,3 @@ export async function searchFlightsWithMeta(query: PkfareSearchQuery): Promise<F
     return { fares: [], source: "unavailable", fallbackReason: errorMessage(error) };
   }
 }
-
-/**
- * Lowest fare only, for lightweight per-day lookups (the flexible-date
- * strip). Returns null (never a fabricated number) when no real fare is
- * available -- the strip already renders that as "—".
- */
-export async function lowestFareForDate(query: PkfareSearchQuery): Promise<number | null> {
-  if (dateExplanation(query.departDate)) return null;
-
-  const payload = buildPayload(query, 5);
-  try {
-    const fares = await searchPkfare({ data: payload });
-    if (fares.length > 0) return Math.min(...fares.map((f) => f.price));
-  } catch {
-    // fall through to null -- never a fabricated number
-  }
-  return null;
-}
