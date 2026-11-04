@@ -78,6 +78,7 @@ import { Route as ApiPublicWebhookScoreCandidatesRouteImport } from './routes/ap
 import { Route as ApiPublicWebhookSecurityReviewRouteImport } from './routes/api/public/webhook.security-review'
 import { Route as FlightsFromToIndexRouteImport } from './routes/flights.$from.$to.index'
 import { Route as FlightsFromToSlugRouteImport } from './routes/flights.$from.$to.$slug'
+import { Route as FlightsAtlPdxAtlantaToPortlandRouteImport } from './routes/flights.atl.pdx.atlanta-to-portland'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -448,6 +449,12 @@ const FlightsFromToSlugRoute = FlightsFromToSlugRouteImport.update({
   path: '/flights/$from/$to/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FlightsAtlPdxAtlantaToPortlandRoute =
+  FlightsAtlPdxAtlantaToPortlandRouteImport.update({
+    id: '/flights/atl/pdx/atlanta-to-portland',
+    path: '/flights/atl/pdx/atlanta-to-portland',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -517,6 +524,7 @@ export interface FileRoutesByFullPath {
   '/api/public/webhook/score-candidates': typeof ApiPublicWebhookScoreCandidatesRoute
   '/api/public/webhook/security-review': typeof ApiPublicWebhookSecurityReviewRoute
   '/flights/$from/$to/$slug': typeof FlightsFromToSlugRoute
+  '/flights/atl/pdx/atlanta-to-portland': typeof FlightsAtlPdxAtlantaToPortlandRoute
   '/flights/$from/$to/': typeof FlightsFromToIndexRoute
 }
 export interface FileRoutesByTo {
@@ -587,6 +595,7 @@ export interface FileRoutesByTo {
   '/api/public/webhook/score-candidates': typeof ApiPublicWebhookScoreCandidatesRoute
   '/api/public/webhook/security-review': typeof ApiPublicWebhookSecurityReviewRoute
   '/flights/$from/$to/$slug': typeof FlightsFromToSlugRoute
+  '/flights/atl/pdx/atlanta-to-portland': typeof FlightsAtlPdxAtlantaToPortlandRoute
   '/flights/$from/$to': typeof FlightsFromToIndexRoute
 }
 export interface FileRoutesById {
@@ -659,6 +668,7 @@ export interface FileRoutesById {
   '/api/public/webhook/score-candidates': typeof ApiPublicWebhookScoreCandidatesRoute
   '/api/public/webhook/security-review': typeof ApiPublicWebhookSecurityReviewRoute
   '/flights/$from/$to/$slug': typeof FlightsFromToSlugRoute
+  '/flights/atl/pdx/atlanta-to-portland': typeof FlightsAtlPdxAtlantaToPortlandRoute
   '/flights/$from/$to/': typeof FlightsFromToIndexRoute
 }
 export interface FileRouteTypes {
@@ -731,6 +741,7 @@ export interface FileRouteTypes {
     | '/api/public/webhook/score-candidates'
     | '/api/public/webhook/security-review'
     | '/flights/$from/$to/$slug'
+    | '/flights/atl/pdx/atlanta-to-portland'
     | '/flights/$from/$to/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -801,6 +812,7 @@ export interface FileRouteTypes {
     | '/api/public/webhook/score-candidates'
     | '/api/public/webhook/security-review'
     | '/flights/$from/$to/$slug'
+    | '/flights/atl/pdx/atlanta-to-portland'
     | '/flights/$from/$to'
   id:
     | '__root__'
@@ -872,6 +884,7 @@ export interface FileRouteTypes {
     | '/api/public/webhook/score-candidates'
     | '/api/public/webhook/security-review'
     | '/flights/$from/$to/$slug'
+    | '/flights/atl/pdx/atlanta-to-portland'
     | '/flights/$from/$to/'
   fileRoutesById: FileRoutesById
 }
@@ -942,6 +955,7 @@ export interface RootRouteChildren {
   ApiPublicWebhookScoreCandidatesRoute: typeof ApiPublicWebhookScoreCandidatesRoute
   ApiPublicWebhookSecurityReviewRoute: typeof ApiPublicWebhookSecurityReviewRoute
   FlightsFromToSlugRoute: typeof FlightsFromToSlugRoute
+  FlightsAtlPdxAtlantaToPortlandRoute: typeof FlightsAtlPdxAtlantaToPortlandRoute
   FlightsFromToIndexRoute: typeof FlightsFromToIndexRoute
 }
 
@@ -1430,6 +1444,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FlightsFromToSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/flights/atl/pdx/atlanta-to-portland': {
+      id: '/flights/atl/pdx/atlanta-to-portland'
+      path: '/flights/atl/pdx/atlanta-to-portland'
+      fullPath: '/flights/atl/pdx/atlanta-to-portland'
+      preLoaderRoute: typeof FlightsAtlPdxAtlantaToPortlandRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -1521,6 +1542,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicWebhookScoreCandidatesRoute: ApiPublicWebhookScoreCandidatesRoute,
   ApiPublicWebhookSecurityReviewRoute: ApiPublicWebhookSecurityReviewRoute,
   FlightsFromToSlugRoute: FlightsFromToSlugRoute,
+  FlightsAtlPdxAtlantaToPortlandRoute: FlightsAtlPdxAtlantaToPortlandRoute,
   FlightsFromToIndexRoute: FlightsFromToIndexRoute,
 }
 export const routeTree = rootRouteImport

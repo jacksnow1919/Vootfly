@@ -16,6 +16,7 @@ const STATIC_PATHS = [
   "/flights/",
   "/flights-from/",
   "/flights-to/",
+  "/flights/atl/pdx/atlanta-to-portland/",
   "/airlines",
   "/about",
   "/contact",

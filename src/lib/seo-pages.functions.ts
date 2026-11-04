@@ -258,6 +258,13 @@ export const listPublishedPaths = createServerFn({ method: "GET" }).handler(asyn
 });
 
 /**
+ * Route guides that are their own file in src/routes rather than a seo_pages row (4 Nov 2026),
+ * so the directory pages and the HTML sitemap link to them too. Each also needs an entry in
+ * STATIC_PATHS in sitemap[.]xml.ts.
+ */
+const STATIC_ROUTE_GUIDES = [{ path: "/flights/atl/pdx/atlanta-to-portland/", from: "Atlanta", to: "Portland" }];
+
+/**
  * Crawlable index of every live route page (added 29 Oct 2026), for /flights/,
  * /flights-from/, /flights-to/ and the /sitemap page. Before this, /flights/
  * linked to no route page at all and the HTML sitemap listed none, so most
@@ -277,13 +284,14 @@ export const listLiveRouteIndex = createServerFn({ method: "GET" }).handler(asyn
     .eq("status", "published")
     .limit(1000);
   const rows = (data ?? []).filter((r): r is { path: string; from_code: string; to_code: string } => !!r.path && !!r.from_code && !!r.to_code);
-  const routes = rows
-    .map((r) => ({
+  const routes = [
+    ...rows.map((r) => ({
       path: r.path,
       from: places[r.from_code]?.name ?? r.from_code.toUpperCase(),
       to: places[r.to_code]?.name ?? r.to_code.toUpperCase(),
-    }))
-    .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+    })),
+    ...STATIC_ROUTE_GUIDES,
+  ].sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
   const fromCodes = new Set(rows.map((r) => r.from_code));
   const toCodes = new Set(rows.map((r) => r.to_code));
   const all = Object.values(places);
