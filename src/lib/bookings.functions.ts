@@ -217,8 +217,12 @@ export const createBooking = createServerFn({ method: "POST" })
         exp_year: vaultCard.expYear,
         cardholder_name: data.card.cardholderName,
       });
-      // The booking stands, and with no card on file the team simply asks the customer again.
-      if (cardError) console.error("[createBooking] card token insert failed", cardError);
+      // A customer who gave a card must never be told it is saved when it is not.
+      if (cardError) {
+        console.error("[createBooking] card token insert failed", cardError);
+        await supabaseAdmin.from("bookings").delete().eq("id", booking.id);
+        return { ok: false, reason: "card_failed" };
+      }
     }
 
     // Tell n8n immediately that a booking request exists, so the advisor alert
