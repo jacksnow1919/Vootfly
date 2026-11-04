@@ -396,15 +396,16 @@ function BookingPage() {
     currency: search.currency,
   }).toString()}`;
 
-  // The payment page shows to everyone once the vault is live, and only on the ?cardtest=1
-  // link until then. Without vault keys that link shows the page with its fields switched off.
+  // Every booking request passes the Payment page. Real card fields show once the vault is
+  // live, or on the ?cardtest=1 link in test mode. Otherwise the fields are off and the page
+  // says so: no card can be typed, and Confirm Booking sends the request as it always has.
   const [vault, setVault] = useState<VaultConfig | null | undefined>(undefined);
   useEffect(() => {
     getCardVaultConfig()
       .then(setVault)
       .catch(() => setVault(null));
   }, []);
-  const cardOn = requestFlow && Boolean(vault?.live || search.cardtest);
+  const cardOn = requestFlow && Boolean(vault && (vault.live || search.cardtest));
   const cardForm = useRef<VaultCardFormHandle>(null);
   const vaultCard = useRef<VaultCard | undefined>(undefined);
   const [cardReady, setCardReady] = useState(false);
@@ -821,9 +822,9 @@ function BookingPage() {
               <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 sm:p-6">
                   <h2 className="font-display text-lg font-semibold text-navy">
-                    {payable || (cardOn && step === 2) ? "Review Your Booking" : cardOn ? "Make Your Payment" : <>Review &amp; Request Booking</>}
+                    {step === 3 ? "Make Your Payment" : "Review Your Booking"}
                   </h2>
-                  {cardOn && step === 3 ? (
+                  {step === 3 ? (
                     <div className="flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-widest text-navy">
                       {["Visa", "Mastercard", "Amex", "Maestro"].map((brand) => (
                         <span key={brand} className="rounded-md border border-border bg-secondary px-2 py-1">
@@ -870,7 +871,7 @@ function BookingPage() {
                       </p>
                     ) : (
                       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                        Submitting this form sends a booking request, not a payment. VootFly does not
+                        Confirming sends a booking request, not a payment. VootFly does not
                         collect card details on this page. Once we've confirmed availability for your
                         fare, our team will contact you by phone or email to arrange secure payment
                         before your booking is finalised.
@@ -878,11 +879,11 @@ function BookingPage() {
                     )}
                   </div>
 
-                  {cardOn && step === 3 ? (
-                    vault ? <VaultCardForm ref={cardForm} config={vault} onReadyChange={setCardReady} /> : <CardFormOff />
+                  {step === 3 ? (
+                    cardOn && vault ? <VaultCardForm ref={cardForm} config={vault} onReadyChange={setCardReady} /> : <CardFormOff />
                   ) : null}
 
-                  <label className={`relative z-20 mt-2 flex cursor-pointer items-start gap-3 rounded-xl border border-border p-3 sm:col-span-2 ${cardOn && step === 2 ? "hidden" : ""}`}>
+                  <label className={`relative z-20 mt-2 flex cursor-pointer items-start gap-3 rounded-xl border border-border p-3 sm:col-span-2 ${requestFlow && step === 2 ? "hidden" : ""}`}>
                     <input
                       type="checkbox"
                       checked={accepted}
@@ -1080,7 +1081,7 @@ function BookingPage() {
                 </p>
                 <button
                   onClick={
-                    cardOn && step === 2
+                    step === 2
                       ? () => {
                           setError("");
                           setStep(3);
@@ -1092,7 +1093,7 @@ function BookingPage() {
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gold px-6 py-3 text-sm font-bold text-gold-foreground transition hover:brightness-110 disabled:opacity-60 sm:flex-none"
                 >
                   <Lock className="size-4" />{" "}
-                  {priceChange ? "Confirm the new price above to continue" : submitting ? "Submitting…" : cardOn ? (step === 2 ? "Continue to Payment" : "Confirm Booking") : "Request This Booking"}
+                  {priceChange ? "Confirm the new price above to continue" : submitting ? "Submitting…" : step === 2 ? "Continue to Payment" : "Confirm Booking"}
                 </button>
               </>
             ) : null}
@@ -1108,7 +1109,7 @@ function BookingPage() {
   );
 }
 
-/** The payment page before the card vault is connected, so its layout can be seen. */
+/** The payment page while card payment is off. The fields can't be typed in, so no card is taken. */
 function CardFormOff() {
   const box = "mt-1 w-full cursor-not-allowed rounded-xl border border-input bg-secondary/60 px-3 py-2.5 text-sm";
   const label = "text-[11px] font-semibold uppercase tracking-widest text-muted-foreground";
@@ -1124,7 +1125,8 @@ function CardFormOff() {
         <CreditCard className="size-4 text-gold" aria-hidden="true" /> Card details
       </p>
       <p role="status" className="mt-3 rounded-lg border border-amber-400 bg-amber-50 p-2.5 text-xs font-semibold text-amber-900">
-        Preview only. These fields turn on once the card vault is connected.
+        Online card payment is coming soon, so these fields are switched off. Please don't try to enter your card. Confirm your
+        booking below and our team will contact you to arrange secure payment.
       </p>
       <div className="mt-3 grid grid-cols-2 gap-3">
         {field("Name on Card", "As printed on the card", true)}
