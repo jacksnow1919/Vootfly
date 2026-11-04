@@ -396,20 +396,20 @@ function BookingPage() {
     currency: search.currency,
   }).toString()}`;
 
-  // The card form shows on a booking request once the vault is connected: to everyone when it
-  // is live, and only on the ?cardtest=1 link while it is in test mode.
+  // The payment page shows to everyone once the vault is live, and only on the ?cardtest=1
+  // link until then. Without vault keys that link shows the page with its fields switched off.
   const [vault, setVault] = useState<VaultConfig | null | undefined>(undefined);
   useEffect(() => {
     getCardVaultConfig()
       .then(setVault)
       .catch(() => setVault(null));
   }, []);
-  const cardOn = requestFlow && Boolean(vault && (vault.live || search.cardtest));
+  const cardOn = requestFlow && Boolean(vault?.live || search.cardtest);
   const cardForm = useRef<VaultCardFormHandle>(null);
   const vaultCard = useRef<VaultCard | undefined>(undefined);
   const [cardReady, setCardReady] = useState(false);
 
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   /** Set only when a fresh revalidation found a real, different price the
@@ -667,7 +667,7 @@ function BookingPage() {
             for faster booking and to earn loyalty points. Guest checkout is fine too.
           </span>
         </div>
-        <Steps current={step === 1 ? 3 : 4} />
+        <Steps current={step === 1 ? 3 : step === 2 ? 4 : 5} />
       </div>
 
       <div className="mx-auto mt-4 grid max-w-7xl gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -736,7 +736,7 @@ function BookingPage() {
               </p>
             </section>
           ) : null}
-          {requestFlow ? (
+          {requestFlow && step !== 3 ? (
           <section className="rounded-2xl border border-border bg-card p-4 shadow-card sm:p-6">
             <h2 className="font-display text-lg font-semibold text-navy">Promo Code</h2>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -821,7 +821,7 @@ function BookingPage() {
               <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 sm:p-6">
                   <h2 className="font-display text-lg font-semibold text-navy">
-                    {payable ? "Review Your Booking" : cardOn ? "Review & Secure Your Booking" : <>Review &amp; Request Booking</>}
+                    {payable || (cardOn && step === 2) ? "Review Your Booking" : cardOn ? "Payment" : <>Review &amp; Request Booking</>}
                   </h2>
                 </div>
                 <div className="grid gap-3 p-4 sm:p-6">
@@ -843,7 +843,7 @@ function BookingPage() {
                       </div>
                     </>
                   ) : null}
-                  <div className="rounded-xl border border-border bg-secondary/60 p-4 sm:p-5">
+                  <div className={`rounded-xl border border-border bg-secondary/60 p-4 sm:p-5 ${step === 3 ? "hidden" : ""}`}>
                     <div className="flex items-center gap-2 text-navy">
                       <ShieldCheck className="size-4 text-gold" />
                       <span className="text-sm font-bold">How this works</span>
@@ -856,9 +856,8 @@ function BookingPage() {
                       </p>
                     ) : cardOn ? (
                       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                        Submitting this form sends a booking request with your card details to our secure card vault.
-                        Nothing is charged on this page. Our team confirms availability and the final fare with you, and
-                        your card is charged when your ticket is issued.
+                        On the next page you add your card details. Nothing is charged there. Our team confirms availability
+                        and the final fare with you, and your card is charged when your ticket is issued.
                       </p>
                     ) : (
                       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
@@ -870,9 +869,11 @@ function BookingPage() {
                     )}
                   </div>
 
-                  {cardOn && vault ? <VaultCardForm ref={cardForm} config={vault} onReadyChange={setCardReady} /> : null}
+                  {cardOn && step === 3 ? (
+                    vault ? <VaultCardForm ref={cardForm} config={vault} onReadyChange={setCardReady} /> : <CardFormOff />
+                  ) : null}
 
-                  <label className="relative z-20 mt-2 flex cursor-pointer items-start gap-3 rounded-xl border border-border p-3 sm:col-span-2">
+                  <label className={`relative z-20 mt-2 flex cursor-pointer items-start gap-3 rounded-xl border border-border p-3 sm:col-span-2 ${cardOn && step === 2 ? "hidden" : ""}`}>
                     <input
                       type="checkbox"
                       checked={accepted}
@@ -942,10 +943,13 @@ function BookingPage() {
               </section>
 
               <button
-                onClick={() => setStep(1)}
+                onClick={() => {
+                  setCardReady(false);
+                  setStep(step === 3 ? 2 : 1);
+                }}
                 className="text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-navy"
               >
-                ← Back to traveller details
+                {step === 3 ? "← Back to review" : "← Back to traveller details"}
               </button>
             </>
           )}
@@ -1040,7 +1044,7 @@ function BookingPage() {
         </aside>
       </div>
 
-      {step === 2 ? (
+      {step !== 1 ? (
         <div className="fixed inset-x-0 bottom-14 z-30 border-t border-border bg-card/95 px-4 py-3 backdrop-blur md:bottom-0">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
             {liveQuote ? (
@@ -1066,12 +1070,20 @@ function BookingPage() {
                   <span className="text-xs font-normal text-muted-foreground">incl. taxes &amp; fees</span>
                 </p>
                 <button
-                  onClick={submitBookingRequest}
-                  disabled={submitting || !!priceChange || vault === undefined || (cardOn && !cardReady)}
+                  onClick={
+                    cardOn && step === 2
+                      ? () => {
+                          setError("");
+                          setStep(3);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }
+                      : submitBookingRequest
+                  }
+                  disabled={submitting || !!priceChange || vault === undefined || (cardOn && step === 3 && !cardReady)}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gold px-6 py-3 text-sm font-bold text-gold-foreground transition hover:brightness-110 disabled:opacity-60 sm:flex-none"
                 >
                   <Lock className="size-4" />{" "}
-                  {priceChange ? "Confirm the new price above to continue" : submitting ? "Submitting…" : cardOn ? "Confirm & Secure Card" : "Request This Booking"}
+                  {priceChange ? "Confirm the new price above to continue" : submitting ? "Submitting…" : cardOn ? (step === 2 ? "Continue to Payment" : "Confirm Booking") : "Request This Booking"}
                 </button>
               </>
             ) : null}
@@ -1083,6 +1095,32 @@ function BookingPage() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** The payment page before the card vault is connected, so its layout can be seen. */
+function CardFormOff() {
+  const box = "mt-1 w-full cursor-not-allowed rounded-xl border border-input bg-secondary/60 px-3 py-2.5 text-sm";
+  const label = "text-[11px] font-semibold uppercase tracking-widest text-muted-foreground";
+  const field = (name: string, placeholder: string, wide = false) => (
+    <label key={name} className={`block ${wide ? "col-span-2" : ""}`}>
+      <span className={label}>{name} *</span>
+      <input disabled placeholder={placeholder} className={box} />
+    </label>
+  );
+  return (
+    <div className="rounded-xl border border-border bg-secondary/40 p-4 sm:col-span-2">
+      <p className="text-sm font-bold text-navy">Card details</p>
+      <p role="status" className="mt-3 rounded-lg border border-amber-400 bg-amber-50 p-2.5 text-xs font-semibold text-amber-900">
+        Preview only. These fields turn on once the card vault is connected.
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        {field("Card Number", "1234 5678 9012 3456", true)}
+        {field("Expiry Date", "MM / YY")}
+        {field("CVC", "123")}
+        {field("Name on Card", "As printed on the card", true)}
+      </div>
     </div>
   );
 }

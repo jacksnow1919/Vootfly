@@ -82,7 +82,7 @@ export const VaultCardForm = forwardRef<VaultCardFormHandle, { config: VaultConf
     );
 
     return (
-      <div className="rounded-xl border border-border bg-secondary/40 p-4">
+      <div className="rounded-xl border border-border bg-secondary/40 p-4 sm:col-span-2">
         <div className="flex items-center gap-2 text-navy">
           <CreditCard className="size-4 text-gold" aria-hidden="true" />
           <span className="text-sm font-bold">Card details</span>
