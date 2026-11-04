@@ -162,6 +162,92 @@ export type AdminBookingsResult =
 const BOOKING_COLUMNS =
   "id, pnr, created_at, origin, destination, airline, cabin_class, depart_date, return_date, total_price, currency, status, source, utm_source, click_id, promo_code, promo_discount, lead_name, guest_email, guest_phone, billing_address, billing_city, billing_country, billing_postal_code, verification_status, verification_notes, verified_by_name, verified_at, capture_status, captured_at, passengers(title, first_name, last_name, dob, gender, passport_no), audit_logs(id, booking_id, operator_name, operator_role, action, remarks, created_at)";
 
+export type AdminCheckoutRow = {
+  id: string;
+  reference: string;
+  created_at: string;
+  test_mode: boolean;
+  payment_status: string;
+  booking_status: string;
+  amount: string;
+  currency: string;
+  supplier_pnr: string | null;
+  supplier_order_id: string | null;
+  stripe_payment_intent_id: string | null;
+  card_brand: string | null;
+  card_last4: string | null;
+  card_exp_month: number | null;
+  card_exp_year: number | null;
+  cardholder_name: string | null;
+  failure_code: string | null;
+  failure_detail: string | null;
+  booking_id: string | null;
+  lead_name: string;
+  email: string;
+  phone: string;
+};
+
+/** Online card checkouts for staff, including any that need a manual check. No passport data. */
+export const getOnlineCheckouts = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ authorized: boolean; canRefund: boolean; rows: AdminCheckoutRow[] }> => {
+    const { currentOperator, canCapture } = await import("@/lib/admin-session.server");
+    const op = await currentOperator();
+    if (!op) return { authorized: false, canRefund: false, rows: [] };
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("checkouts")
+      .select(
+        "id, reference, created_at, test_mode, payment_status, booking_status, amount, currency, supplier_pnr, supplier_order_id, stripe_payment_intent_id, card_brand, card_last4, card_exp_month, card_exp_year, cardholder_name, failure_code, failure_detail, booking_id, travellers, contact",
+      )
+      .neq("booking_status", "draft")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    // The checkouts table is only created when card payment is set up, so until then there is nothing to list.
+    if (error?.code === "PGRST205" || error?.code === "42P01") return { authorized: true, canRefund: false, rows: [] };
+    if (error) {
+      console.error("[getOnlineCheckouts] read failed", error);
+      throw new Error("Could not load online payments.");
+    }
+
+    const rows = (data ?? []).map(({ travellers, contact, ...row }) => {
+      const lead = (travellers as { firstName?: string; lastName?: string }[] | null)?.[0];
+      const c = contact as { email?: string; phone?: string } | null;
+      return {
+        ...row,
+        lead_name: `${lead?.firstName ?? ""} ${lead?.lastName ?? ""}`.trim(),
+        email: c?.email ?? "",
+        phone: c?.phone ?? "",
+      };
+    });
+    return { authorized: true, canRefund: canCapture(op.role), rows };
+  },
+);
+
+/** Refunds a charged online payment through Stripe. Managers and above only, and always logged. */
+export const refundOnlineCheckout = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => z.object({ id: z.string().uuid() }).parse(data))
+  .handler(async ({ data }) => {
+    const { currentOperator, canCapture } = await import("@/lib/admin-session.server");
+    const op = await currentOperator();
+    if (!op || !canCapture(op.role)) return { ok: false as const, message: "Only a manager can refund a payment." };
+
+    const { refundCheckout } = await import("@/lib/checkout.server");
+    const result = await refundCheckout(data.id);
+    if (!result.ok) return result;
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await supabaseAdmin.from("audit_logs").insert({
+      booking_id: result.bookingId,
+      operator_id: op.id,
+      operator_name: op.name,
+      operator_role: op.role,
+      action: "CARD_REFUNDED",
+      remarks: `Refunded ${result.currency} ${result.amount} on ${result.reference}`,
+    });
+    return { ok: true as const };
+  });
+
 export const getAdminBookings = createServerFn({ method: "GET" }).handler(
   async (): Promise<AdminBookingsResult> => {
     const { currentOperator } = await import("@/lib/admin-session.server");

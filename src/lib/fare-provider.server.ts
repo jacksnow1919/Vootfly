@@ -24,6 +24,19 @@ export function duffelToken(): string | null {
   return null;
 }
 
+/**
+ * Duffel test keys return sample flights from a fictional airline, so they are refused
+ * unless BOOKING_ENV=sandbox says this is localhost or the test Worker (3 Nov 2026).
+ * Never set BOOKING_ENV on the real site.
+ */
+export function duffelTestKeyAllowed(): boolean {
+  return (process.env["BOOKING_ENV"] ?? "").trim().toLowerCase() === "sandbox";
+}
+
+export function duffelIsTestMode(): boolean {
+  return Boolean(duffelToken()?.startsWith("duffel_test_"));
+}
+
 /** MContent credentials: MContent_ID is the site id, MContent_Source the source string. */
 export function mcontentCredentials(): { siteId: string; source: string } | null {
   const pick = (...names: string[]) => {

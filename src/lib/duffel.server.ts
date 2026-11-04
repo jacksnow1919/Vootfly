@@ -13,7 +13,7 @@
  */
 import type { PkfareNormalisedFare, PkfareSearchQuery } from "./pkfare-types";
 import { allSegments, localStamp, segment, terms } from "./supplier-segments";
-import { duffelToken } from "./fare-provider.server";
+import { duffelTestKeyAllowed, duffelToken } from "./fare-provider.server";
 
 const BASE_URL = "https://api.duffel.com";
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -52,11 +52,18 @@ type DuffelOffer = {
   slices?: DuffelSlice[];
   owner?: DuffelCarrier;
   conditions?: {
-    refund_before_departure?: { allowed?: boolean } | null;
-    change_before_departure?: { allowed?: boolean } | null;
+    refund_before_departure?: DuffelCondition | null;
+    change_before_departure?: DuffelCondition | null;
   } | null;
   passengers?: { id?: string; type?: string | null }[];
+  base_amount?: string | null;
+  base_currency?: string | null;
+  tax_amount?: string | null;
+  tax_currency?: string | null;
+  expires_at?: string | null;
+  passenger_identity_documents_required?: boolean | null;
 };
+type DuffelCondition = { allowed?: boolean | null; penalty_amount?: string | null; penalty_currency?: string | null };
 type DuffelOfferRequestResponse = {
   data?: { id: string; offers?: DuffelOffer[] };
   errors?: { title?: string; message?: string; code?: string }[];
@@ -65,7 +72,7 @@ type DuffelOfferRequestResponse = {
 function credentials(): string {
   const token = duffelToken();
   if (!token) throw new Error("Duffel credentials are not configured");
-  if (token.startsWith("duffel_test_")) {
+  if (token.startsWith("duffel_test_") && !duffelTestKeyAllowed()) {
     throw new Error("The Duffel key is a test key, which only returns sample flights. A live key (duffel_live_...) is needed for real fares.");
   }
   return token;
@@ -174,8 +181,8 @@ function normaliseOffer(offer: DuffelOffer, requestedCabin: string): PkfareNorma
   const offerTerms = terms({
     brand: brands.size === 1 ? [...brands][0] : undefined,
     baggage: duffelBags(offer),
-    changeable: offer.conditions?.change_before_departure?.allowed,
-    refundable: offer.conditions?.refund_before_departure?.allowed,
+    changeable: offer.conditions?.change_before_departure?.allowed ?? undefined,
+    refundable: offer.conditions?.refund_before_departure?.allowed ?? undefined,
   });
   const carrierCode = (offer.owner?.iata_code || out.carrierCode || "").toUpperCase().slice(0, 2);
 
@@ -315,4 +322,226 @@ export async function runDuffelSearch(query: PkfareSearchQuery): Promise<PkfareN
   fares = fares.slice(0, Math.max(limit, 1));
   console.info(`[Duffel] ${body.data?.offers?.length ?? 0} offers -> ${fares.length} fares`);
   return fares;
+}
+
+/* ------------------------------------------------------------------ */
+/* Booking (3 Nov 2026): re-read one offer, then turn it into an order */
+/* ------------------------------------------------------------------ */
+
+export type TripSegment = {
+  carrier: string;
+  flightNo: string;
+  origin: string;
+  destination: string;
+  departAt: string;
+  arriveAt: string;
+};
+export type TripSlice = {
+  origin: string;
+  destination: string;
+  departAt: string;
+  arriveAt: string;
+  duration: string;
+  stops: number;
+  cabin: string | null;
+  segments: TripSegment[];
+};
+export type TripCondition = { allowed: boolean | null; penalty: string | null };
+/** What the airline's offer states about the trip. Anything it leaves out stays null, never guessed. */
+export type TripSnapshot = {
+  airline: string;
+  slices: TripSlice[];
+  cabinBags: number | null;
+  checkedBags: number | null;
+  refund: TripCondition;
+  change: TripCondition;
+};
+export type DuffelQuote = {
+  offerId: string;
+  total: string;
+  currency: string;
+  /** Only when the offer states them in the same currency as the total. */
+  base: string | null;
+  tax: string | null;
+  passengerIds: string[];
+  identityDocumentsRequired: boolean;
+  trip: TripSnapshot;
+};
+export type DuffelQuoteResult =
+  | { ok: true; quote: DuffelQuote }
+  | { ok: false; reason: "unavailable" | "check_failed" };
+
+const ORDER_TIMEOUT_MS = 120_000;
+
+function duffelHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    "Duffel-Version": "v2",
+    Accept: "application/json",
+    "Accept-Encoding": "gzip",
+    "Content-Type": "application/json",
+  };
+}
+
+function condition(c: DuffelCondition | null | undefined): TripCondition {
+  const allowed = typeof c?.allowed === "boolean" ? c.allowed : null;
+  const penalty = c?.penalty_amount && c.penalty_currency ? `${c.penalty_currency} ${c.penalty_amount}` : null;
+  return { allowed, penalty };
+}
+
+function tripFromOffer(offer: DuffelOffer): TripSnapshot {
+  const bags = duffelBags(offer);
+  const slices = (offer.slices ?? []).flatMap((slice): TripSlice[] => {
+    const info = sliceInfo(slice);
+    if (!info) return [];
+    const last = info.segments[info.segments.length - 1]!;
+    return [
+      {
+        origin: info.origin,
+        destination: info.destination,
+        departAt: info.first.departing_at ?? "",
+        arriveAt: last.arriving_at ?? "",
+        duration: fmtDuration(info.durationMinutes),
+        stops: info.stops,
+        cabin: info.first.passengers?.[0]?.cabin_class_marketing_name ?? info.first.passengers?.[0]?.cabin_class ?? null,
+        segments: info.segments.map((seg) => ({
+          carrier: seg.marketing_carrier?.name ?? "",
+          flightNo: `${seg.marketing_carrier?.iata_code ?? ""} ${seg.marketing_carrier_flight_number ?? ""}`.trim(),
+          origin: seg.origin?.iata_code ?? "",
+          destination: seg.destination?.iata_code ?? "",
+          departAt: seg.departing_at ?? "",
+          arriveAt: seg.arriving_at ?? "",
+        })),
+      },
+    ];
+  });
+  return {
+    airline: offer.owner?.name ?? slices[0]?.segments[0]?.carrier ?? "Airline",
+    slices,
+    cabinBags: bags.cabin_bags ?? null,
+    checkedBags: bags.checked_bags ?? null,
+    refund: condition(offer.conditions?.refund_before_departure),
+    change: condition(offer.conditions?.change_before_departure),
+  };
+}
+
+/**
+ * The exact offer the customer selected, freshly read from Duffel. This is the only source
+ * of the amount the customer pays; nothing the browser sends can change it.
+ */
+export async function getDuffelOffer(offerId: string): Promise<DuffelQuoteResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}/air/offers/${encodeURIComponent(offerId)}`, {
+      headers: duffelHeaders(credentials()),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    console.error("[Duffel] offer read failed", error);
+    return { ok: false, reason: "check_failed" };
+  }
+  const body = (await res.json().catch(() => null)) as { data?: DuffelOffer; errors?: { code?: string; title?: string }[] } | null;
+  if (!res.ok || !body?.data) {
+    const first = body?.errors?.[0];
+    console.error(`[Duffel] air/offers failed (${first?.code ?? res.status}: ${first?.title ?? "unknown"})`);
+    // 4xx means Duffel answered and the offer can no longer be booked; anything else is an unknown.
+    return { ok: false, reason: res.status >= 400 && res.status < 500 ? "unavailable" : "check_failed" };
+  }
+
+  const offer = body.data;
+  const total = offer.total_amount;
+  const currency = (offer.total_currency ?? "").toUpperCase();
+  const passengerIds = (offer.passengers ?? []).map((p) => p.id ?? "").filter(Boolean);
+  const expired = offer.expires_at ? Date.parse(offer.expires_at) <= Date.now() : false;
+  if (!total || !currency || passengerIds.length === 0 || expired) return { ok: false, reason: "unavailable" };
+
+  const sameCurrency = (c?: string | null) => (c ?? "").toUpperCase() === currency;
+  return {
+    ok: true,
+    quote: {
+      offerId: offer.id,
+      total,
+      currency,
+      base: offer.base_amount && sameCurrency(offer.base_currency) ? offer.base_amount : null,
+      tax: offer.tax_amount && sameCurrency(offer.tax_currency) ? offer.tax_amount : null,
+      passengerIds,
+      identityDocumentsRequired: offer.passenger_identity_documents_required === true,
+      trip: tripFromOffer(offer),
+    },
+  };
+}
+
+export type DuffelOrderPassenger = {
+  id: string;
+  title: string;
+  gender: "m" | "f";
+  given_name: string;
+  family_name: string;
+  born_on: string;
+  email: string;
+  phone_number: string;
+  identity_documents?: { type: "passport"; unique_identifier: string; issuing_country_code: string; expires_on: string }[];
+};
+
+export type DuffelOrderResult =
+  | { ok: true; orderId: string; bookingReference: string; ticketNumbers: string[] }
+  /** Duffel answered and refused, so no order exists and the card hold can be released. */
+  | { ok: false; outcome: "refused"; code: string; message: string }
+  /** No clear answer (timeout, 5xx). An order may exist, so nothing may be released automatically. */
+  | { ok: false; outcome: "unknown"; code: string; message: string };
+
+/**
+ * Books the offer and pays the airline from the prefunded Duffel Balance. Call this only
+ * after the customer's card hold has been verified with Stripe on the server.
+ */
+export async function createDuffelOrder(input: {
+  offerId: string;
+  amount: string;
+  currency: string;
+  passengers: DuffelOrderPassenger[];
+  checkoutId: string;
+}): Promise<DuffelOrderResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}/air/orders`, {
+      method: "POST",
+      headers: duffelHeaders(credentials()),
+      body: JSON.stringify({
+        data: {
+          type: "instant",
+          selected_offers: [input.offerId],
+          passengers: input.passengers,
+          payments: [{ type: "balance", amount: input.amount, currency: input.currency }],
+          metadata: { checkout_id: input.checkoutId },
+        },
+      }),
+      signal: AbortSignal.timeout(ORDER_TIMEOUT_MS),
+    });
+  } catch (error) {
+    console.error("[Duffel] order transport failure", error);
+    return { ok: false, outcome: "unknown", code: "order_no_response", message: String(error) };
+  }
+
+  const body = (await res.json().catch(() => null)) as {
+    data?: { id?: string; booking_reference?: string | null; documents?: { unique_identifier?: string }[] };
+    errors?: { code?: string; title?: string; message?: string }[];
+  } | null;
+
+  if (!res.ok) {
+    const first = body?.errors?.[0];
+    const code = first?.code ?? `http_${res.status}`;
+    const message = first?.message ?? first?.title ?? `Duffel returned ${res.status}`;
+    console.error(`[Duffel] air/orders failed (${code}): ${message}`);
+    return { ok: false, outcome: res.status >= 400 && res.status < 500 ? "refused" : "unknown", code, message };
+  }
+
+  const orderId = body?.data?.id;
+  const bookingReference = body?.data?.booking_reference;
+  if (!orderId || !bookingReference) {
+    // A success without an airline reference is not a confirmation, and one is never made up.
+    console.error("[Duffel] order accepted without a booking reference", orderId);
+    return { ok: false, outcome: "unknown", code: "order_without_reference", message: `Order ${orderId ?? "(no id)"} has no airline reference` };
+  }
+  const ticketNumbers = (body?.data?.documents ?? []).map((d) => d.unique_identifier ?? "").filter(Boolean);
+  return { ok: true, orderId, bookingReference, ticketNumbers };
 }

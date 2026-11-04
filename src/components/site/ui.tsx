@@ -92,7 +92,7 @@ export function Pill({ children }: { children: ReactNode }) {
 }
 
 export function Steps({ current }: { current: number }) {
-  const labels = ["Search", "Fare", "Traveller", "Upsell", "Payment", "Confirm"];
+  const labels = ["Search", "Fare", "Traveller", "Review", "Payment", "Confirm"];
   return (
     <ol className="flex flex-wrap gap-2 text-[11px] font-semibold">
       {labels.map((l, i) => (

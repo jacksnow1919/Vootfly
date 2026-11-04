@@ -464,6 +464,128 @@ export type Database = {
           },
         ]
       }
+      checkouts: {
+        Row: {
+          amount: string
+          amount_minor: number
+          base_amount: string | null
+          stripe_payment_method_id: string | null
+          card_brand: string | null
+          card_last4: string | null
+          card_exp_month: number | null
+          card_exp_year: number | null
+          cardholder_name: string | null
+          booking_id: string | null
+          booking_status: string
+          claimed_at: string | null
+          click_id: string | null
+          contact: Json
+          created_at: string
+          currency: string
+          failure_code: string | null
+          failure_detail: string | null
+          id: string
+          paid_at: string | null
+          payment_status: string
+          reference: string
+          stripe_payment_intent_id: string | null
+          supplier: string
+          supplier_offer_id: string
+          supplier_order_id: string | null
+          supplier_pnr: string | null
+          tax_amount: string | null
+          test_mode: boolean
+          ticket_numbers: string[]
+          travellers: Json
+          trip: Json
+          updated_at: string
+          user_id: string | null
+          utm_source: string | null
+        }
+        Insert: {
+          amount: string
+          amount_minor: number
+          base_amount?: string | null
+          stripe_payment_method_id?: string | null
+          card_brand?: string | null
+          card_last4?: string | null
+          card_exp_month?: number | null
+          card_exp_year?: number | null
+          cardholder_name?: string | null
+          booking_id?: string | null
+          booking_status?: string
+          claimed_at?: string | null
+          click_id?: string | null
+          contact: Json
+          created_at?: string
+          currency: string
+          failure_code?: string | null
+          failure_detail?: string | null
+          id?: string
+          paid_at?: string | null
+          payment_status?: string
+          reference: string
+          stripe_payment_intent_id?: string | null
+          supplier?: string
+          supplier_offer_id: string
+          supplier_order_id?: string | null
+          supplier_pnr?: string | null
+          tax_amount?: string | null
+          test_mode: boolean
+          ticket_numbers?: string[]
+          travellers: Json
+          trip: Json
+          updated_at?: string
+          user_id?: string | null
+          utm_source?: string | null
+        }
+        Update: {
+          amount?: string
+          amount_minor?: number
+          base_amount?: string | null
+          stripe_payment_method_id?: string | null
+          card_brand?: string | null
+          card_last4?: string | null
+          card_exp_month?: number | null
+          card_exp_year?: number | null
+          cardholder_name?: string | null
+          booking_id?: string | null
+          booking_status?: string
+          claimed_at?: string | null
+          click_id?: string | null
+          contact?: Json
+          created_at?: string
+          currency?: string
+          failure_code?: string | null
+          failure_detail?: string | null
+          id?: string
+          paid_at?: string | null
+          payment_status?: string
+          reference?: string
+          stripe_payment_intent_id?: string | null
+          supplier?: string
+          supplier_offer_id?: string
+          supplier_order_id?: string | null
+          supplier_pnr?: string | null
+          tax_amount?: string | null
+          test_mode?: boolean
+          ticket_numbers?: string[]
+          travellers?: Json
+          trip?: Json
+          updated_at?: string
+          user_id?: string | null
+          utm_source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checkouts_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversations: {
         Row: {
           created_at: string

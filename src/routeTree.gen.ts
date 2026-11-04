@@ -36,7 +36,10 @@ import { Route as DestinationsIndexRouteImport } from './routes/destinations.ind
 import { Route as DestinationsSlugRouteImport } from './routes/destinations.$slug'
 import { Route as FlightConfirmRouteImport } from './routes/flight.Confirm'
 import { Route as FlightBookingRouteImport } from './routes/flight.booking'
+import { Route as FlightConfirmationRouteImport } from './routes/flight.confirmation'
 import { Route as FlightFareDetailsRouteImport } from './routes/flight.fare-details'
+import { Route as FlightPaymentRouteImport } from './routes/flight.payment'
+import { Route as FlightPaymentPreviewRouteImport } from './routes/flight.payment-preview'
 import { Route as FlightSearchRouteImport } from './routes/flight.search'
 import { Route as FlightsFromIndexRouteImport } from './routes/flights-from.index'
 import { Route as FlightsFromCodeRouteImport } from './routes/flights-from.$code'
@@ -76,6 +79,7 @@ import { Route as ApiPublicWebhookRefreshPerformanceRouteImport } from './routes
 import { Route as ApiPublicWebhookRoutesRouteImport } from './routes/api/public/webhook.routes'
 import { Route as ApiPublicWebhookScoreCandidatesRouteImport } from './routes/api/public/webhook.score-candidates'
 import { Route as ApiPublicWebhookSecurityReviewRouteImport } from './routes/api/public/webhook.security-review'
+import { Route as ApiPublicWebhookStripeRouteImport } from './routes/api/public/webhook.stripe'
 import { Route as FlightsFromToIndexRouteImport } from './routes/flights.$from.$to.index'
 import { Route as FlightsFromToSlugRouteImport } from './routes/flights.$from.$to.$slug'
 import { Route as FlightsAtlPdxAtlantaToPortlandRouteImport } from './routes/flights.atl.pdx.atlanta-to-portland'
@@ -214,9 +218,24 @@ const FlightBookingRoute = FlightBookingRouteImport.update({
   path: '/flight/booking',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FlightConfirmationRoute = FlightConfirmationRouteImport.update({
+  id: '/flight/confirmation',
+  path: '/flight/confirmation',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FlightFareDetailsRoute = FlightFareDetailsRouteImport.update({
   id: '/flight/fare-details',
   path: '/flight/fare-details',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FlightPaymentRoute = FlightPaymentRouteImport.update({
+  id: '/flight/payment',
+  path: '/flight/payment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FlightPaymentPreviewRoute = FlightPaymentPreviewRouteImport.update({
+  id: '/flight/payment-preview',
+  path: '/flight/payment-preview',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FlightSearchRoute = FlightSearchRouteImport.update({
@@ -439,6 +458,11 @@ const ApiPublicWebhookSecurityReviewRoute =
     path: '/api/public/webhook/security-review',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicWebhookStripeRoute = ApiPublicWebhookStripeRouteImport.update({
+  id: '/api/public/webhook/stripe',
+  path: '/api/public/webhook/stripe',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FlightsFromToIndexRoute = FlightsFromToIndexRouteImport.update({
   id: '/flights/$from/$to/',
   path: '/flights/$from/$to/',
@@ -480,7 +504,10 @@ export interface FileRoutesByFullPath {
   '/destinations/$slug': typeof DestinationsSlugRoute
   '/flight/Confirm': typeof FlightConfirmRoute
   '/flight/booking': typeof FlightBookingRoute
+  '/flight/confirmation': typeof FlightConfirmationRoute
   '/flight/fare-details': typeof FlightFareDetailsRoute
+  '/flight/payment': typeof FlightPaymentRoute
+  '/flight/payment-preview': typeof FlightPaymentPreviewRoute
   '/flight/search': typeof FlightSearchRoute
   '/flights-from/$code': typeof FlightsFromCodeRoute
   '/flights-to/$code': typeof FlightsToCodeRoute
@@ -523,6 +550,7 @@ export interface FileRoutesByFullPath {
   '/api/public/webhook/routes': typeof ApiPublicWebhookRoutesRoute
   '/api/public/webhook/score-candidates': typeof ApiPublicWebhookScoreCandidatesRoute
   '/api/public/webhook/security-review': typeof ApiPublicWebhookSecurityReviewRoute
+  '/api/public/webhook/stripe': typeof ApiPublicWebhookStripeRoute
   '/flights/$from/$to/$slug': typeof FlightsFromToSlugRoute
   '/flights/atl/pdx/atlanta-to-portland': typeof FlightsAtlPdxAtlantaToPortlandRoute
   '/flights/$from/$to/': typeof FlightsFromToIndexRoute
@@ -551,7 +579,10 @@ export interface FileRoutesByTo {
   '/destinations/$slug': typeof DestinationsSlugRoute
   '/flight/Confirm': typeof FlightConfirmRoute
   '/flight/booking': typeof FlightBookingRoute
+  '/flight/confirmation': typeof FlightConfirmationRoute
   '/flight/fare-details': typeof FlightFareDetailsRoute
+  '/flight/payment': typeof FlightPaymentRoute
+  '/flight/payment-preview': typeof FlightPaymentPreviewRoute
   '/flight/search': typeof FlightSearchRoute
   '/flights-from/$code': typeof FlightsFromCodeRoute
   '/flights-to/$code': typeof FlightsToCodeRoute
@@ -594,6 +625,7 @@ export interface FileRoutesByTo {
   '/api/public/webhook/routes': typeof ApiPublicWebhookRoutesRoute
   '/api/public/webhook/score-candidates': typeof ApiPublicWebhookScoreCandidatesRoute
   '/api/public/webhook/security-review': typeof ApiPublicWebhookSecurityReviewRoute
+  '/api/public/webhook/stripe': typeof ApiPublicWebhookStripeRoute
   '/flights/$from/$to/$slug': typeof FlightsFromToSlugRoute
   '/flights/atl/pdx/atlanta-to-portland': typeof FlightsAtlPdxAtlantaToPortlandRoute
   '/flights/$from/$to': typeof FlightsFromToIndexRoute
@@ -624,7 +656,10 @@ export interface FileRoutesById {
   '/destinations/$slug': typeof DestinationsSlugRoute
   '/flight/Confirm': typeof FlightConfirmRoute
   '/flight/booking': typeof FlightBookingRoute
+  '/flight/confirmation': typeof FlightConfirmationRoute
   '/flight/fare-details': typeof FlightFareDetailsRoute
+  '/flight/payment': typeof FlightPaymentRoute
+  '/flight/payment-preview': typeof FlightPaymentPreviewRoute
   '/flight/search': typeof FlightSearchRoute
   '/flights-from/$code': typeof FlightsFromCodeRoute
   '/flights-to/$code': typeof FlightsToCodeRoute
@@ -667,6 +702,7 @@ export interface FileRoutesById {
   '/api/public/webhook/routes': typeof ApiPublicWebhookRoutesRoute
   '/api/public/webhook/score-candidates': typeof ApiPublicWebhookScoreCandidatesRoute
   '/api/public/webhook/security-review': typeof ApiPublicWebhookSecurityReviewRoute
+  '/api/public/webhook/stripe': typeof ApiPublicWebhookStripeRoute
   '/flights/$from/$to/$slug': typeof FlightsFromToSlugRoute
   '/flights/atl/pdx/atlanta-to-portland': typeof FlightsAtlPdxAtlantaToPortlandRoute
   '/flights/$from/$to/': typeof FlightsFromToIndexRoute
@@ -697,7 +733,10 @@ export interface FileRouteTypes {
     | '/destinations/$slug'
     | '/flight/Confirm'
     | '/flight/booking'
+    | '/flight/confirmation'
     | '/flight/fare-details'
+    | '/flight/payment'
+    | '/flight/payment-preview'
     | '/flight/search'
     | '/flights-from/$code'
     | '/flights-to/$code'
@@ -740,6 +779,7 @@ export interface FileRouteTypes {
     | '/api/public/webhook/routes'
     | '/api/public/webhook/score-candidates'
     | '/api/public/webhook/security-review'
+    | '/api/public/webhook/stripe'
     | '/flights/$from/$to/$slug'
     | '/flights/atl/pdx/atlanta-to-portland'
     | '/flights/$from/$to/'
@@ -768,7 +808,10 @@ export interface FileRouteTypes {
     | '/destinations/$slug'
     | '/flight/Confirm'
     | '/flight/booking'
+    | '/flight/confirmation'
     | '/flight/fare-details'
+    | '/flight/payment'
+    | '/flight/payment-preview'
     | '/flight/search'
     | '/flights-from/$code'
     | '/flights-to/$code'
@@ -811,6 +854,7 @@ export interface FileRouteTypes {
     | '/api/public/webhook/routes'
     | '/api/public/webhook/score-candidates'
     | '/api/public/webhook/security-review'
+    | '/api/public/webhook/stripe'
     | '/flights/$from/$to/$slug'
     | '/flights/atl/pdx/atlanta-to-portland'
     | '/flights/$from/$to'
@@ -840,7 +884,10 @@ export interface FileRouteTypes {
     | '/destinations/$slug'
     | '/flight/Confirm'
     | '/flight/booking'
+    | '/flight/confirmation'
     | '/flight/fare-details'
+    | '/flight/payment'
+    | '/flight/payment-preview'
     | '/flight/search'
     | '/flights-from/$code'
     | '/flights-to/$code'
@@ -883,6 +930,7 @@ export interface FileRouteTypes {
     | '/api/public/webhook/routes'
     | '/api/public/webhook/score-candidates'
     | '/api/public/webhook/security-review'
+    | '/api/public/webhook/stripe'
     | '/flights/$from/$to/$slug'
     | '/flights/atl/pdx/atlanta-to-portland'
     | '/flights/$from/$to/'
@@ -911,7 +959,10 @@ export interface RootRouteChildren {
   DestinationsSlugRoute: typeof DestinationsSlugRoute
   FlightConfirmRoute: typeof FlightConfirmRoute
   FlightBookingRoute: typeof FlightBookingRoute
+  FlightConfirmationRoute: typeof FlightConfirmationRoute
   FlightFareDetailsRoute: typeof FlightFareDetailsRoute
+  FlightPaymentRoute: typeof FlightPaymentRoute
+  FlightPaymentPreviewRoute: typeof FlightPaymentPreviewRoute
   FlightSearchRoute: typeof FlightSearchRoute
   FlightsFromCodeRoute: typeof FlightsFromCodeRoute
   FlightsToCodeRoute: typeof FlightsToCodeRoute
@@ -954,6 +1005,7 @@ export interface RootRouteChildren {
   ApiPublicWebhookRoutesRoute: typeof ApiPublicWebhookRoutesRoute
   ApiPublicWebhookScoreCandidatesRoute: typeof ApiPublicWebhookScoreCandidatesRoute
   ApiPublicWebhookSecurityReviewRoute: typeof ApiPublicWebhookSecurityReviewRoute
+  ApiPublicWebhookStripeRoute: typeof ApiPublicWebhookStripeRoute
   FlightsFromToSlugRoute: typeof FlightsFromToSlugRoute
   FlightsAtlPdxAtlantaToPortlandRoute: typeof FlightsAtlPdxAtlantaToPortlandRoute
   FlightsFromToIndexRoute: typeof FlightsFromToIndexRoute
@@ -1150,11 +1202,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FlightBookingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/flight/confirmation': {
+      id: '/flight/confirmation'
+      path: '/flight/confirmation'
+      fullPath: '/flight/confirmation'
+      preLoaderRoute: typeof FlightConfirmationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/flight/fare-details': {
       id: '/flight/fare-details'
       path: '/flight/fare-details'
       fullPath: '/flight/fare-details'
       preLoaderRoute: typeof FlightFareDetailsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/flight/payment': {
+      id: '/flight/payment'
+      path: '/flight/payment'
+      fullPath: '/flight/payment'
+      preLoaderRoute: typeof FlightPaymentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/flight/payment-preview': {
+      id: '/flight/payment-preview'
+      path: '/flight/payment-preview'
+      fullPath: '/flight/payment-preview'
+      preLoaderRoute: typeof FlightPaymentPreviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/flight/search': {
@@ -1430,6 +1503,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicWebhookSecurityReviewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/webhook/stripe': {
+      id: '/api/public/webhook/stripe'
+      path: '/api/public/webhook/stripe'
+      fullPath: '/api/public/webhook/stripe'
+      preLoaderRoute: typeof ApiPublicWebhookStripeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/flights/$from/$to/': {
       id: '/flights/$from/$to/'
       path: '/flights/$from/$to'
@@ -1490,7 +1570,10 @@ const rootRouteChildren: RootRouteChildren = {
   DestinationsSlugRoute: DestinationsSlugRoute,
   FlightConfirmRoute: FlightConfirmRoute,
   FlightBookingRoute: FlightBookingRoute,
+  FlightConfirmationRoute: FlightConfirmationRoute,
   FlightFareDetailsRoute: FlightFareDetailsRoute,
+  FlightPaymentRoute: FlightPaymentRoute,
+  FlightPaymentPreviewRoute: FlightPaymentPreviewRoute,
   FlightSearchRoute: FlightSearchRoute,
   FlightsFromCodeRoute: FlightsFromCodeRoute,
   FlightsToCodeRoute: FlightsToCodeRoute,
@@ -1541,6 +1624,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicWebhookRoutesRoute: ApiPublicWebhookRoutesRoute,
   ApiPublicWebhookScoreCandidatesRoute: ApiPublicWebhookScoreCandidatesRoute,
   ApiPublicWebhookSecurityReviewRoute: ApiPublicWebhookSecurityReviewRoute,
+  ApiPublicWebhookStripeRoute: ApiPublicWebhookStripeRoute,
   FlightsFromToSlugRoute: FlightsFromToSlugRoute,
   FlightsAtlPdxAtlantaToPortlandRoute: FlightsAtlPdxAtlantaToPortlandRoute,
   FlightsFromToIndexRoute: FlightsFromToIndexRoute,

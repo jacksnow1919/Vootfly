@@ -2,12 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Check, Phone, Mail, MapPin, Plane } from "lucide-react";
 import { parseFlightSearch, currencySymbol } from "@/lib/flight-search-params";
-import {
-  readBookingLocal,
-  makeBookingId,
-  formatBookingDate,
-  type BookingRecord,
-} from "@/lib/booking-store";
+import { readBookingLocal, type BookingRecord } from "@/lib/booking-store";
 
 export const Route = createFileRoute("/flight/Confirm")({
   validateSearch: parseFlightSearch,
@@ -36,28 +31,41 @@ const EMAIL = "info@vootfly.com";
 function ConfirmPage() {
   const s = Route.useSearch();
   const sym = currencySymbol(s.currency);
-  // s.price is the PER-PERSON price (taxes & fees included), exactly as
-  // labelled on search results -- never a grand total to be divided.
-  const perPerson = Number(s.price) || 0;
   const [record, setRecord] = useState<BookingRecord | null>(null);
+  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     setRecord(readBookingLocal());
+    setChecked(true);
   }, []);
 
-  const bookingId = record?.bookingId ?? makeBookingId();
-  const bookingDate = record?.bookingDate ?? formatBookingDate();
-  const fullName = record
-    ? `${record.title} ${record.firstName} ${record.lastName}`.trim()
-    : "Valued Traveller";
-  const email = record?.email || EMAIL;
-  const phone = record?.phone || PHONE;
-  const billing = record
-    ? [record.address, record.city, record.postalCode, record.country].filter(Boolean).join(", ") ||
-      ADDRESS
-    : ADDRESS;
-  const passengers = record?.passengers ?? (Number(s.passengers) || 1);
-  const grandTotal = perPerson * passengers;
+  // Without a saved request there is nothing to show. This page used to invent a booking
+  // id and default flight here, so opening the URL directly looked like a real request.
+  if (!record) {
+    return (
+      <div className="grid min-h-[70dvh] place-items-center bg-secondary/40 px-4 text-center">
+        {checked ? (
+          <div>
+            <h1 className="font-display text-2xl font-semibold text-navy">We couldn't find a booking request</h1>
+            <p className="mt-2 text-sm text-muted-foreground">If you need help with a booking, please call {PHONE}.</p>
+            <Link to="/" className="mt-4 inline-block rounded-xl bg-navy px-5 py-3 text-sm font-bold text-navy-foreground">
+              Back to home
+            </Link>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const bookingId = record.bookingId;
+  const bookingDate = record.bookingDate;
+  const fullName = `${record.title} ${record.firstName} ${record.lastName}`.trim();
+  const email = record.email;
+  const phone = record.phone;
+  const billing = [record.address, record.city, record.postalCode, record.country].filter(Boolean).join(", ");
+  const passengers = record.passengers;
+  const grandTotal = record.total;
+  const perPerson = grandTotal / Math.max(1, passengers);
 
   return (
     <div className="min-h-[100dvh] bg-secondary/40 pb-24">
@@ -140,14 +148,16 @@ function ConfirmPage() {
             date={s.departDate}
             cabin={s.cabin}
           />
-          <Segment
-            kind="Return"
-            airline={s.airline}
-            from={s.destination}
-            to={s.origin}
-            date={s.departDate}
-            cabin={s.cabin}
-          />
+          {s.returnDate ? (
+            <Segment
+              kind="Return"
+              airline={s.airline}
+              from={s.destination}
+              to={s.origin}
+              date={s.returnDate}
+              cabin={s.cabin}
+            />
+          ) : null}
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-5 shadow-card">

@@ -8,15 +8,19 @@ import {
   markBookingPaid,
   createStaff,
   getAdminBookings,
+  getOnlineCheckouts,
   listStaff,
+  refundOnlineCheckout,
   updateBookingStatus,
   updateStaffRole,
   verifyBooking,
   type AdminBookingRow,
+  type AdminCheckoutRow,
   type OperatorRole,
 } from "@/lib/admin.functions";
 import { FlightApisTab } from "@/components/admin/FlightApisTab";
 import {
+  CreditCard,
   LayoutDashboard,
   PlaneTakeoff,
   Ticket,
@@ -551,13 +555,150 @@ function StaffTab() {
 
 /* -------------------------------- dashboard ------------------------------- */
 
+function CardSummary({ checkout: c }: { checkout: AdminCheckoutRow }) {
+  if (!c.card_last4) return null;
+  const expiry = c.card_exp_month && c.card_exp_year ? `${String(c.card_exp_month).padStart(2, "0")}/${c.card_exp_year}` : null;
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 text-xs font-semibold text-navy">
+      <CreditCard className="size-3.5 text-gold" aria-hidden="true" />
+      <span className="capitalize">{c.card_brand ?? "Card"}</span>
+      <span>•••• •••• •••• {c.card_last4}</span>
+      {expiry ? <span className="font-normal text-muted-foreground">Expires {expiry}</span> : null}
+      {c.cardholder_name ? <span className="font-normal text-muted-foreground">{c.cardholder_name}</span> : null}
+    </p>
+  );
+}
+
+/** Asks first, because the refund moves real money and does not cancel the airline ticket. */
+function RefundAction({ checkout: c }: { checkout: AdminCheckoutRow }) {
+  const queryClient = useQueryClient();
+  const refund = useServerFn(refundOnlineCheckout);
+  const [asking, setAsking] = useState(false);
+  const mutation = useMutation({
+    mutationFn: () => refund({ data: { id: c.id } }),
+    onSettled: () => {
+      setAsking(false);
+      void queryClient.invalidateQueries({ queryKey: ["admin-online-checkouts"] });
+    },
+  });
+  const failed = mutation.isError ? "Could not refund this payment. Check it in Stripe before trying again." : mutation.data && !mutation.data.ok ? mutation.data.message : "";
+
+  return (
+    <div className="pt-1">
+      {asking ? (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-xs font-semibold text-navy">
+            Refund {c.currency} {c.amount} to this card? This does not cancel the airline ticket. Cancel it with the airline first.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              disabled={mutation.isPending}
+              onClick={() => mutation.mutate()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+            >
+              {mutation.isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null} Yes, refund
+            </button>
+            <button type="button" disabled={mutation.isPending} onClick={() => setAsking(false)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-bold text-navy">
+              Keep payment
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setAsking(true)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-bold text-navy hover:bg-secondary">
+          Process refund
+        </button>
+      )}
+      {failed ? <p className="mt-1 text-xs font-semibold text-destructive">{failed}</p> : null}
+    </div>
+  );
+}
+
+function OnlinePaymentsTab() {
+  const fetchCheckouts = useServerFn(getOnlineCheckouts);
+  const checkouts = useQuery({ queryKey: ["admin-online-checkouts"], queryFn: () => fetchCheckouts() });
+
+  if (checkouts.isLoading) {
+    return (
+      <div className="grid h-40 place-items-center">
+        <Loader2 className="size-6 animate-spin text-gold" />
+      </div>
+    );
+  }
+  if (checkouts.isError) {
+    return <p className="p-4 text-sm font-semibold text-destructive">Could not load online payments.</p>;
+  }
+
+  // Anything staff must act on comes first.
+  const rows = [...(checkouts.data?.rows ?? [])].sort(
+    (a, z) => Number(z.booking_status === "manual_review") - Number(a.booking_status === "manual_review"),
+  );
+
+  return (
+    <section className="rounded-2xl border border-border bg-card shadow-card">
+      <div className="border-b border-border px-4 py-3">
+        <h2 className="font-display text-base font-semibold text-navy">Online payments</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Payment and booking status are separate. For a manual review, check the Duffel order and the Stripe payment
+          before charging or releasing anything. Each Duffel order carries the checkout id in its metadata.
+        </p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="p-4 text-sm text-muted-foreground">No online payments yet.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {rows.map((c) => (
+            <li key={c.id} className={`space-y-1 p-4 text-sm ${c.booking_status === "manual_review" ? "bg-gold/10" : ""}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-display font-semibold text-navy">{c.reference}</span>
+                {c.test_mode ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">TEST</span> : null}
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-bold text-navy">Booking: {c.booking_status}</span>
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-bold text-navy">Payment: {c.payment_status}</span>
+                <span className="ml-auto font-semibold text-navy">{c.currency} {c.amount}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {new Date(c.created_at).toLocaleString()} · {c.lead_name} · {c.email} · {c.phone}
+              </p>
+              <p className="break-all text-xs text-muted-foreground">
+                Checkout {c.id}
+                {c.supplier_pnr ? ` · PNR ${c.supplier_pnr}` : ""}
+                {c.supplier_order_id ? ` · Duffel ${c.supplier_order_id}` : ""}
+              </p>
+              <CardSummary checkout={c} />
+              {c.stripe_payment_intent_id ? (
+                <a
+                  href={`https://dashboard.stripe.com/${c.test_mode ? "test/" : ""}payments/${c.stripe_payment_intent_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block text-xs font-bold text-primary underline"
+                >
+                  View payment log in Stripe
+                </a>
+              ) : null}
+              {c.booking_status === "confirmed" && !c.booking_id && !c.test_mode ? (
+                <p className="text-xs font-semibold text-destructive">Paid and booked, but not copied to All Bookings. Add it by hand.</p>
+              ) : null}
+              {c.failure_code ? (
+                <p className="break-words text-xs font-semibold text-destructive">
+                  {c.failure_code}{c.failure_detail ? `: ${c.failure_detail}` : ""}
+                </p>
+              ) : null}
+              {checkouts.data?.canRefund && c.payment_status === "paid" && c.stripe_payment_intent_id ? <RefundAction checkout={c} /> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function AdminDashboard() {
   const navigate = useNavigate();
   const fetchBookings = useServerFn(getAdminBookings);
   const logout = useServerFn(adminLogout);
   const sessionStatus = useServerFn(adminSessionStatus);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"bookings" | "apis" | "staff">("bookings");
+  const [tab, setTab] = useState<"bookings" | "online" | "apis" | "staff">("bookings");
 
   const session = useQuery({
     queryKey: ["admin-session"],
@@ -630,6 +771,16 @@ function AdminDashboard() {
             }`}
           >
             <LayoutDashboard className="size-4" /> All Bookings &amp; PNR Queue
+          </button>
+          <button
+            onClick={() => setTab("online")}
+            className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition ${
+              tab === "online"
+                ? "bg-white/15 text-navy-foreground"
+                : "text-navy-foreground/80 hover:bg-white/10"
+            }`}
+          >
+            <CreditCard className="size-4" /> Online payments
           </button>
           <button
             onClick={() => setTab("apis")}
@@ -762,6 +913,10 @@ function AdminDashboard() {
               </table>
             </div>
           </section>
+        ) : tab === "online" ? (
+          <div className="mt-6">
+            <OnlinePaymentsTab />
+          </div>
         ) : tab === "apis" ? (
           <div className="mt-6">
             <FlightApisTab />

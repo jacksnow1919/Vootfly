@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { Plane, Clock, Briefcase, GitCompare, X, TrendingDown, Loader2, SlidersHorizontal, ChevronLeft } from "lucide-react";
 import { searchFlightsWithMeta, type PkfareNormalisedFare } from "@/services/flightSearch";
+import { FlightDetails } from "@/components/site/FlightDetails";
 import { MotionLogo } from "@/components/site/MotionLogo";
 import { FareWatchCard } from "@/components/site/FareWatchCard";
 import { getSearchWatch } from "@/lib/search-watch.functions";
@@ -601,6 +602,7 @@ function SearchPage() {
     price: String(f.price),
     passengers: String(passengers),
     ...(f.supplier ? { supplier: f.supplier } : {}),
+    ...(f.supplier === "duffel" ? { offer: f.id } : {}),
   });
 
   return (
@@ -830,6 +832,8 @@ function SearchPage() {
                   <p className="mt-0.5 text-[10px] text-muted-foreground">per person, incl. taxes</p>
                 </div>
               </div>
+
+              <FlightDetails fare={f} passengers={passengers} renderPrice={(amount) => <Price usdAmount={amount} />} />
 
               <div className="flex items-center justify-between gap-3 border-t border-border bg-secondary/40 px-4 py-2.5">
                 <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-muted-foreground">

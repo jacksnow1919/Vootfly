@@ -83,16 +83,67 @@ export const travellerSchema = z.object({
 export type TravellerForm = z.infer<typeof travellerSchema>;
 export type TravellerErrors = Partial<Record<keyof TravellerForm, string>>;
 
-/** Field-level errors for the current values (used for real-time feedback). */
-export function validateTraveller(values: TravellerForm): TravellerErrors {
-  const result = travellerSchema.safeParse(values);
-  if (result.success) return {};
-  const errors: TravellerErrors = {};
-  for (const issue of result.error.issues) {
-    const key = issue.path[0] as keyof TravellerForm;
-    if (key && !errors[key]) errors[key] = issue.message;
+/** One traveller's own details. Each person on a paid booking needs these for the airline. */
+export const passengerSchema = travellerSchema.pick({
+  title: true,
+  gender: true,
+  firstName: true,
+  lastName: true,
+  dobDay: true,
+  dobMonth: true,
+  dobYear: true,
+  passportNo: true,
+  passportExpiry: true,
+  nationality: true,
+});
+export type PassengerForm = z.infer<typeof passengerSchema>;
+
+export const contactSchema = travellerSchema.pick({
+  email: true,
+  phone: true,
+  address: true,
+  country: true,
+  city: true,
+  postalCode: true,
+});
+
+/** "1990-02-14" when the three fields are a real date in the past, otherwise null (31 Feb, a future year). */
+export function bornOnFrom(v: Pick<TravellerForm, "dobDay" | "dobMonth" | "dobYear">): string | null {
+  const y = Number(v.dobYear);
+  const m = Number(v.dobMonth);
+  const d = Number(v.dobDay);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  const real = date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+  if (!real || date.getTime() > Date.now()) return null;
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function fieldErrors<T extends Pick<TravellerForm, "dobDay" | "dobMonth" | "dobYear">>(
+  schema: z.ZodType<T>,
+  values: T,
+): Partial<Record<keyof T, string>> {
+  const errors: Partial<Record<keyof T, string>> = {};
+  const result = schema.safeParse(values);
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      const key = issue.path[0] as keyof T;
+      if (key && !errors[key]) errors[key] = issue.message;
+    }
+  }
+  const dob = errors as Partial<Record<"dobDay" | "dobMonth" | "dobYear", string>>;
+  if (!dob.dobDay && !dob.dobMonth && !dob.dobYear && !bornOnFrom(values)) {
+    dob.dobDay = "This date doesn't exist or is in the future.";
   }
   return errors;
+}
+
+/** Field-level errors for the current values (used for real-time feedback). */
+export function validateTraveller(values: TravellerForm): TravellerErrors {
+  return fieldErrors(travellerSchema, values);
+}
+
+export function validatePassenger(values: PassengerForm): Partial<Record<keyof PassengerForm, string>> {
+  return fieldErrors(passengerSchema, values);
 }
 
 export const isTravellerValid = (values: TravellerForm) =>

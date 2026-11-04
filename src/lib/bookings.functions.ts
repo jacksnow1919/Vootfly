@@ -203,7 +203,7 @@ export const createBooking = createServerFn({ method: "POST" })
 
 
 /** Ping the n8n booking workflows (advisor alert, traveller confirmation). */
-async function notifyBookingCreated(): Promise<void> {
+export async function notifyBookingCreated(): Promise<void> {
   const secret = process.env["N8N_WEBHOOK_SECRET"];
   if (!secret) return;
   const hooks = [
