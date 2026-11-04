@@ -29,6 +29,10 @@ export type StripePaymentIntent = {
         card?: { brand?: string; last4?: string; exp_month?: number; exp_year?: number };
       }
     | null;
+  latest_charge?:
+    | string
+    | { receipt_url?: string | null; refunded?: boolean; payment_method_details?: { card?: { capture_before?: number | null } } | null }
+    | null;
   last_payment_error?: { code?: string; decline_code?: string; message?: string } | null;
 };
 
@@ -98,7 +102,7 @@ async function stripeRequest<T>(
 
 /**
  * Places a hold on the card rather than charging it (manual capture). The money is only
- * taken once the airline has confirmed the booking; if it refuses, the hold is released
+ * taken once the sales team has issued the ticket; if they can't, the hold is released
  * and the customer is never charged.
  */
 export function createPaymentIntent(input: {
@@ -127,7 +131,7 @@ export function createPaymentIntent(input: {
 }
 
 export const retrievePaymentIntent = (id: string) =>
-  stripeRequest<StripePaymentIntent>("GET", `/payment_intents/${encodeURIComponent(id)}?expand%5B%5D=payment_method`);
+  stripeRequest<StripePaymentIntent>("GET", `/payment_intents/${encodeURIComponent(id)}?expand%5B%5D=payment_method&expand%5B%5D=latest_charge`);
 
 /** The only card details VootFly keeps: enough for staff to recognise the card, useless for charging it. */
 export function maskedCard(intent: StripePaymentIntent) {
@@ -141,6 +145,13 @@ export function maskedCard(intent: StripePaymentIntent) {
     card_exp_year: method.card.exp_year ?? null,
     cardholder_name: method.billing_details?.name ?? null,
   };
+}
+
+/** Stripe's own last moment to charge this hold. It varies by card network, so it is not worked out here. */
+export function holdExpiresAt(intent: StripePaymentIntent): string | null {
+  const charge = typeof intent.latest_charge === "object" ? intent.latest_charge : null;
+  const seconds = charge?.payment_method_details?.card?.capture_before;
+  return seconds ? new Date(seconds * 1000).toISOString() : null;
 }
 
 /** Refunds the whole payment. The key means a double click or a retry can't refund twice. */

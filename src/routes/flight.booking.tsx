@@ -1,8 +1,11 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Lock, ShieldCheck, User } from "lucide-react";
 import { parseFlightSearch, currencySymbol } from "@/lib/flight-search-params";
 import { SearchSelect } from "@/components/checkout/SearchSelect";
+import { VaultCardForm, type VaultCard, type VaultCardFormHandle } from "@/components/checkout/VaultCardForm";
+import { getCardVaultConfig } from "@/lib/card-vault.functions";
+import type { VaultConfig } from "@/lib/card-vault.server";
 import { ServiceFeeNote, TripDetails } from "@/components/checkout/TripDetails";
 import { Steps } from "@/components/site/ui";
 import { track } from "@/lib/analytics";
@@ -13,8 +16,8 @@ import {
   type TravellerErrors,
   type TravellerForm,
 } from "@/lib/checkout-validation";
-import { beginCheckout, getOfferQuote } from "@/lib/checkout.functions";
-import { CHECKOUT_DRAFT_KEY, CHECKOUT_RETURN_KEY, formatAmount, type QuoteResult } from "@/lib/checkout-shared";
+import { beginCheckout, getFareQuote } from "@/lib/checkout.functions";
+import { CHECKOUT_DRAFT_KEY, CHECKOUT_RETURN_KEY, formatAmount, type QuoteResult, type FareRef } from "@/lib/checkout-shared";
 import { COUNTRY_NAMES, PHONE_COUNTRIES } from "@/lib/countries";
 import {
   makeBookingId,
@@ -343,11 +346,28 @@ function BookingPage() {
   }, []);
 
 
-  // Fares from our own search carry the airline's offer, so they can be paid for and booked
-  // online. Everything else (partner deep links, suppliers with no booking API, or a site
-  // with no payment keys) stays a booking request exactly as before.
+  // Fares from our own search can be held by card, and the sales team tickets them. Partner
+  // deep links and their discounts, or a site with no payment keys, stay a booking request.
+  const cardEligible = Boolean(search.offer || search.supplier) && !isDeepLink && !autoApplied;
+  const fareRef = useMemo<FareRef>(
+    () => ({
+      ...(search.offer ? { offerId: search.offer } : {}),
+      ...(search.supplier ? { supplier: search.supplier as FareRef["supplier"] } : {}),
+      origin: search.origin,
+      destination: search.destination,
+      departDate: search.departDate,
+      ...(search.returnDate ? { returnDate: search.returnDate } : {}),
+      cabin: search.cabin,
+      flightNo: search.flightNo,
+      passengers: paxCount,
+      price: search.price,
+      currency: search.currency,
+    }),
+    [search, paxCount],
+  );
+  const draftKey = search.offer ?? `${search.origin}-${search.destination}-${search.departDate}-${search.flightNo}`;
   const [quote, setQuote] = useState<QuoteResult | { status: "loading" | "none" }>(
-    search.offer ? { status: "loading" } : { status: "none" },
+    cardEligible ? { status: "loading" } : { status: "none" },
   );
   const liveQuote = quote.status === "ok" ? quote.quote : null;
   const payable = liveQuote !== null;
@@ -355,15 +375,15 @@ function BookingPage() {
   const fareBlocked = quote.status === "unavailable" || quote.status === "check_failed";
 
   const loadQuote = useCallback(() => {
-    if (!search.offer) return;
+    if (!cardEligible) return;
     setQuote({ status: "loading" });
-    getOfferQuote({ data: { offerId: search.offer } })
+    getFareQuote({ data: fareRef })
       .then(setQuote)
       .catch((e) => {
         console.error("[checkout] fare check failed", e);
         setQuote({ status: "check_failed" });
       });
-  }, [search.offer]);
+  }, [cardEligible, fareRef]);
   useEffect(loadQuote, [loadQuote]);
 
   const searchAgainHref = `/flight/search?${new URLSearchParams({
@@ -375,6 +395,19 @@ function BookingPage() {
     cabin: search.cabin,
     currency: search.currency,
   }).toString()}`;
+
+  // The card form shows on a booking request once the vault is connected: to everyone when it
+  // is live, and only on the ?cardtest=1 link while it is in test mode.
+  const [vault, setVault] = useState<VaultConfig | null | undefined>(undefined);
+  useEffect(() => {
+    getCardVaultConfig()
+      .then(setVault)
+      .catch(() => setVault(null));
+  }, []);
+  const cardOn = requestFlow && Boolean(vault && (vault.live || search.cardtest));
+  const cardForm = useRef<VaultCardFormHandle>(null);
+  const vaultCard = useRef<VaultCard | undefined>(undefined);
+  const [cardReady, setCardReady] = useState(false);
 
   const [step, setStep] = useState<1 | 2>(1);
   const [submitting, setSubmitting] = useState(false);
@@ -423,12 +456,12 @@ function BookingPage() {
 
   // Coming back from the payment page keeps what was typed, for this same fare only.
   useEffect(() => {
-    if (!search.offer) return;
+    if (!cardEligible) return;
     try {
       const saved = JSON.parse(sessionStorage.getItem(CHECKOUT_DRAFT_KEY) ?? "null") as
         | { offer: string; t: TravellerForm; extra: PassengerForm[] }
         | null;
-      if (saved?.offer !== search.offer) return;
+      if (saved?.offer !== draftKey) return;
       setT(saved.t);
       if (saved.extra.length === paxCount - 1) setExtra(saved.extra);
     } catch {
@@ -469,7 +502,7 @@ function BookingPage() {
     saveBookingLocal(record);
     let result;
     try {
-      result = await persistBooking(record);
+      result = await persistBooking(record, vaultCard.current);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error("[checkout] backend rejected the booking:", message, e);
@@ -483,6 +516,10 @@ function BookingPage() {
       if (result.reason === "price_changed") {
         setPriceChange({ record, newPrice: result.newPrice, currency: result.currency });
         setError("");
+      } else if (result.reason === "card_failed") {
+        setPriceChange(null);
+        vaultCard.current = undefined;
+        setError("We couldn't save your card securely, so nothing was booked. Please check your card details and try again, or call +1-800-773-6613.");
       } else if (result.reason === "unavailable") {
         setPriceChange(null);
         setError(
@@ -513,11 +550,19 @@ function BookingPage() {
     setPriceChange(null);
     setSubmitting(true);
 
-    // VootFly does not collect or store card details anywhere in this flow.
-    // A booking request is saved with traveller details only; our team
-    // contacts the customer to confirm availability and take payment through
-    // a real, secure channel (phone or a payment link) before anything is
-    // actually booked with the airline.
+    // VootFly never receives a card number. With the vault on, the card goes straight to the
+    // vault and only its token reference comes here. Nothing is charged by this page.
+    if (cardOn) {
+      try {
+        if (!cardForm.current) throw new Error("CARD_FORM_NOT_READY");
+        vaultCard.current = await cardForm.current.tokenize();
+      } catch (e) {
+        console.error("[checkout] card vault failed", e instanceof Error ? e.message : "unknown error");
+        setError("We couldn't save your card securely, so nothing was booked. Please check your card details and try again, or call +1-800-773-6613.");
+        setSubmitting(false);
+        return;
+      }
+    }
     const grandTotal = total * paxCount;
     const record: BookingRecord = {
       bookingId: makeBookingId(),
@@ -530,6 +575,7 @@ function BookingPage() {
       clickId: search.click_id ?? getClickId(),
       promoCode: appliedPromo,
       promoDiscount: discount,
+      ...(cardOn ? { cardOnFile: true } : {}),
     };
 
     await attemptPersist(record);
@@ -537,7 +583,7 @@ function BookingPage() {
 
   /** Opens a real payment. The server re-reads the offer and sets the amount; nothing is booked yet. */
   const proceedToPayment = async () => {
-    if (!liveQuote || !search.offer) return;
+    if (!liveQuote) return;
     if (!accepted) {
       setError("Please accept the Terms & Conditions to continue.");
       return;
@@ -545,7 +591,7 @@ function BookingPage() {
     setError("");
     setSubmitting(true);
     try {
-      sessionStorage.setItem(CHECKOUT_DRAFT_KEY, JSON.stringify({ offer: search.offer, t, extra }));
+      sessionStorage.setItem(CHECKOUT_DRAFT_KEY, JSON.stringify({ offer: draftKey, t, extra }));
       sessionStorage.setItem(CHECKOUT_RETURN_KEY, `${window.location.pathname}${window.location.search}`);
     } catch {
       /* storage unavailable: the customer would only have to type their details again */
@@ -553,7 +599,7 @@ function BookingPage() {
     try {
       const result = await beginCheckout({
         data: {
-          offerId: search.offer,
+          fare: fareRef,
           expectedTotal: liveQuote.total,
           acceptedTerms: true,
           travellers: [t, ...extra],
@@ -775,7 +821,7 @@ function BookingPage() {
               <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 sm:p-6">
                   <h2 className="font-display text-lg font-semibold text-navy">
-                    {payable ? "Review Your Booking" : <>Review &amp; Request Booking</>}
+                    {payable ? "Review Your Booking" : cardOn ? "Review & Secure Your Booking" : <>Review &amp; Request Booking</>}
                   </h2>
                 </div>
                 <div className="grid gap-3 p-4 sm:p-6">
@@ -805,8 +851,14 @@ function BookingPage() {
                     {payable ? (
                       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
                         On the next page you pay by card through Stripe, our payment processor. VootFly never sees or
-                        stores your full card number. Your card is only charged after the airline confirms your booking.
-                        If the airline can't confirm it, the hold on your card is released.
+                        stores your full card number. Your card is held first and only charged after our team issues your
+                        ticket. If we can't issue it, the hold on your card is released.
+                      </p>
+                    ) : cardOn ? (
+                      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                        Submitting this form sends a booking request with your card details to our secure card vault.
+                        Nothing is charged on this page. Our team confirms availability and the final fare with you, and
+                        your card is charged when your ticket is issued.
                       </p>
                     ) : (
                       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
@@ -817,6 +869,8 @@ function BookingPage() {
                       </p>
                     )}
                   </div>
+
+                  {cardOn && vault ? <VaultCardForm ref={cardForm} config={vault} onReadyChange={setCardReady} /> : null}
 
                   <label className="relative z-20 mt-2 flex cursor-pointer items-start gap-3 rounded-xl border border-border p-3 sm:col-span-2">
                     <input
@@ -833,6 +887,13 @@ function BookingPage() {
                         I accept VootFly's <a href="/terms" className="font-semibold underline">Terms &amp; Conditions</a> and{" "}
                         <a href="/refund-policy" className="font-semibold underline">Refund &amp; Cancellation Policy</a>, and the
                         baggage, refund and change conditions shown above.
+                      </span>
+                    ) : cardOn ? (
+                      <span className="text-xs text-muted-foreground">
+                        I accept VootFly's <a href="/terms" className="font-semibold underline">Terms &amp; Conditions</a> and{" "}
+                        <a href="/refund-policy" className="font-semibold underline">Refund &amp; Cancellation Policy</a>. I authorize
+                        VootFly, or the airline or ticketing partner issuing my ticket, to charge this card for the fare confirmed
+                        with me, once my ticket is issued.
                       </span>
                     ) : (
                       <span className="text-xs text-muted-foreground">
@@ -895,7 +956,7 @@ function BookingPage() {
             <div className="border-b border-white/10 p-5">
               <h2 className="font-display text-lg font-semibold">Trip Summary</h2>
               <p className="mt-1 text-xs text-navy-foreground/60">
-                {payable ? "Price checked with the airline." : "From your referring search."}
+                {payable ? "Price checked just now." : "From your referring search."}
               </p>
             </div>
             <dl className="space-y-3 p-5 text-sm">
@@ -1006,11 +1067,11 @@ function BookingPage() {
                 </p>
                 <button
                   onClick={submitBookingRequest}
-                  disabled={submitting || !!priceChange}
+                  disabled={submitting || !!priceChange || vault === undefined || (cardOn && !cardReady)}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gold px-6 py-3 text-sm font-bold text-gold-foreground transition hover:brightness-110 disabled:opacity-60 sm:flex-none"
                 >
                   <Lock className="size-4" />{" "}
-                  {priceChange ? "Confirm the new price above to continue" : submitting ? "Submitting…" : "Request This Booking"}
+                  {priceChange ? "Confirm the new price above to continue" : submitting ? "Submitting…" : cardOn ? "Confirm & Secure Card" : "Request This Booking"}
                 </button>
               </>
             ) : null}

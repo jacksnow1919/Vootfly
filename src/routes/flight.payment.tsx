@@ -79,9 +79,9 @@ function PaymentPage() {
     };
   }, [checkoutId, settle]);
 
-  const busyOnServer = view?.bookingStatus === "payment_confirmed" || view?.bookingStatus === "booking_in_progress";
+  const busyOnServer = view?.bookingStatus === "payment_confirmed";
 
-  // Another request (or Stripe's webhook) is finishing this booking: keep checking until it settles.
+  // Staff are charging or releasing this hold: keep checking until it settles.
   useEffect(() => {
     if (!busyOnServer && !loadFailed) return;
     if (settling) return;
@@ -136,8 +136,18 @@ function PaymentPage() {
     return (
       <Notice
         icon={<Loader2 className="size-8 animate-spin text-gold" />}
-        title="Confirming your booking with the airline…"
-        body="Your card is on hold and is only charged once the airline confirms. Please keep this page open. This can take up to a minute."
+        title="Securing your booking…"
+        body="Your card is on hold and has not been charged. Please keep this page open. This can take up to a minute."
+      />
+    );
+  }
+
+  if (view.bookingStatus === "awaiting_ticket") {
+    return (
+      <Notice
+        icon={<ShieldCheck className="size-8 text-gold" />}
+        title="Booking received: your card is on hold"
+        body={`VootFly reference ${view.reference}. We've placed a hold of ${formatAmount(view.amount, view.currency)} on your card, and you have not been charged. Our team will issue your ticket and contact you at ${view.email}. Your card is only charged once your ticket is issued. If we can't issue it, the hold is released. Questions? Call ${SUPPORT_PHONE}.`}
       />
     );
   }
@@ -168,7 +178,7 @@ function PaymentPage() {
     <div className="min-h-[100dvh] bg-secondary/50 px-4 py-6 pb-24">
       <div className="mx-auto max-w-7xl space-y-4">
         <Steps current={5} />
-        {view.testMode ? <TestBanner noTicket={view.noTicketInThisMode} /> : null}
+        {view.testMode ? <TestBanner /> : null}
       </div>
       <div className="mx-auto mt-4 grid max-w-7xl gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-4">
@@ -192,7 +202,7 @@ function PaymentPage() {
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <ShieldCheck className="size-3.5 text-gold" aria-hidden="true" />
-                Your card is held now and only charged after the airline confirms your booking.
+                Your card is held now and only charged after our team issues your ticket.
               </p>
               <button type="button" onClick={cancel} className="text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-navy">
                 Cancel payment
@@ -268,7 +278,7 @@ function CardForm({ view, onAuthorised }: { view: CheckoutView; onAuthorised: ()
       setPaying(false);
       return;
     }
-    // Not trusted as proof of payment: the server now asks Stripe directly before booking anything.
+    // Not trusted as proof of payment: the server now asks Stripe directly before recording anything.
     await onAuthorised();
   };
 
@@ -307,13 +317,12 @@ function CardForm({ view, onAuthorised }: { view: CheckoutView; onAuthorised: ()
   );
 }
 
-function TestBanner({ noTicket }: { noTicket: boolean }) {
+function TestBanner() {
   return (
     <p className="flex items-start gap-2 rounded-2xl border border-amber-400 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
       <TestTube2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span>
         TEST MODE: no real money moves. Use Stripe's test card 4242 4242 4242 4242 with any future date and any CVC.
-        {noTicket ? " This computer uses live fares, so no ticket will be booked after the test payment." : ""}
       </span>
     </p>
   );

@@ -104,7 +104,8 @@ function ConfirmPage() {
           <p className="mt-4 text-sm font-semibold sm:text-base">Dear, {fullName}</p>
           <p className="mx-auto mt-3 max-w-3xl text-sm leading-relaxed text-white/90">
             We've received your booking request. One of our team members will confirm
-            availability and contact you to arrange payment, at {PHONE} or by email at {EMAIL}.
+            availability and contact you{" "}
+            {record.cardOnFile ? "before your card is charged" : "to arrange payment"}, at {PHONE} or by email at {EMAIL}.
             Please find the details of your request below (this is not a confirmed booking or a
             ticket).
           </p>

@@ -24,8 +24,8 @@ export const Route = createFileRoute("/flight/confirmation")({
 });
 
 /**
- * Everything here comes from the server's record of a checkout the airline confirmed and
- * Stripe charged. Without that record the page shows no confirmation at all.
+ * Everything here comes from the server's record of a checkout whose ticket the team issued
+ * and Stripe charged. Without that record the page shows no confirmation at all.
  */
 function ConfirmationPage() {
   const { checkout: checkoutId } = Route.useSearch();
@@ -78,7 +78,7 @@ function ConfirmationPage() {
         {view.testMode ? (
           <p className="flex items-start gap-2 rounded-2xl border border-amber-400 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
             <TestTube2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            TEST BOOKING: made in test mode with a test airline. No real money moved and this is not a real ticket.
+            TEST BOOKING: made in test mode. No real money moved and this is not a real ticket.
           </p>
         ) : null}
 
@@ -87,7 +87,7 @@ function ConfirmationPage() {
             <Check className="size-8" strokeWidth={3} aria-hidden="true" />
           </span>
           <h1 className="mt-4 font-display text-3xl font-semibold">Booking confirmed</h1>
-          <p className="mt-2 text-sm text-white/90">The airline has confirmed your booking and your payment is complete.</p>
+          <p className="mt-2 text-sm text-white/90">Your ticket has been issued and your payment is complete.</p>
           <p className="mt-4 text-xs uppercase tracking-widest text-white/80">Airline booking reference (PNR)</p>
           <p className="font-display text-4xl font-semibold tracking-widest">{view.supplierPnr}</p>
         </section>

@@ -25,6 +25,8 @@ const bookingInput = z.object({
   billingCity: z.string().max(120).optional(),
   billingCountry: z.string().max(120).optional(),
   billingPostalCode: z.string().max(40).optional(),
+  /** Only a vault reference. The card number and CVC never reach this server. */
+  card: z.object({ tokenId: z.string().uuid(), cardholderName: z.string().trim().min(2).max(120) }).optional(),
 
   passenger: z.object({
     title: z.string().max(20).optional(),
@@ -57,7 +59,8 @@ export type CreateBookingResult =
   | { ok: true; id: string }
   | { ok: false; reason: "price_changed"; originalPrice: number; newPrice: number; currency: string }
   | { ok: false; reason: "unavailable" }
-  | { ok: false; reason: "check_failed" };
+  | { ok: false; reason: "check_failed" }
+  | { ok: false; reason: "card_failed" };
 
 export const createBooking = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => bookingInput.parse(data))
@@ -109,6 +112,18 @@ export const createBooking = createServerFn({ method: "POST" })
       };
     }
     // status === "confirmed" -- real, verified, proceed.
+
+    // Masked details come from the vault itself, and before anything is saved, so a booking
+    // that says a card is on file really has one.
+    let vaultCard: { brand: string | null; last4: string; expMonth: number | null; expYear: number | null } | null = null;
+    let vaultTestMode = false;
+    if (data.card) {
+      const vault = await import("@/lib/card-vault.server");
+      const config = vault.vaultConfig();
+      vaultCard = config ? await vault.readMaskedCard(data.card.tokenId).catch(() => null) : null;
+      if (!config || !vaultCard) return { ok: false, reason: "card_failed" };
+      vaultTestMode = config.environment !== "production";
+    }
 
     // Owner is derived from the bearer token only — never from client input.
     let userId: string | null = null;
@@ -190,6 +205,21 @@ export const createBooking = createServerFn({ method: "POST" })
       status: "pending_auth",
     });
     if (payError) console.error("[createBooking] payment insert failed", payError);
+
+    if (data.card && vaultCard) {
+      const { error: cardError } = await supabaseAdmin.from("card_tokens").insert({
+        booking_id: booking.id,
+        token_id: data.card.tokenId,
+        test_mode: vaultTestMode,
+        brand: vaultCard.brand,
+        last4: vaultCard.last4,
+        exp_month: vaultCard.expMonth,
+        exp_year: vaultCard.expYear,
+        cardholder_name: data.card.cardholderName,
+      });
+      // The booking stands, and with no card on file the team simply asks the customer again.
+      if (cardError) console.error("[createBooking] card token insert failed", cardError);
+    }
 
     // Tell n8n immediately that a booking request exists, so the advisor alert
     // and traveller confirmation run once per real booking. Added 29 Sep 2026

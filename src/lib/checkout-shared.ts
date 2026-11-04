@@ -8,18 +8,36 @@ export type { TripSnapshot, TripSlice, TripCondition } from "./duffel.server";
 export const CHECKOUT_RETURN_KEY = "vf:checkout-return";
 export const CHECKOUT_DRAFT_KEY = "vf:checkout-draft";
 
-export type PaymentStatus = "pending" | "processing" | "paid" | "failed" | "cancelled" | "refunded";
+export type PaymentStatus = "pending" | "processing" | "authorized" | "paid" | "failed" | "cancelled" | "refunded";
 export type BookingStatus =
   | "draft"
   | "awaiting_payment"
+  /** A real hold on the card. The sales team is issuing the ticket. */
+  | "awaiting_ticket"
+  /** A staff charge or release is running. */
   | "payment_confirmed"
-  | "booking_in_progress"
   | "confirmed"
   | "failed"
   | "cancelled"
   | "manual_review";
 
-/** The fare as the airline's offer states it right now. Never contains passenger ids or keys. */
+/** Which fare the customer chose. The server re-reads it, so nothing here sets the amount charged. */
+export type FareRef = {
+  offerId?: string | undefined;
+  supplier?: "duffel" | "mcontent" | "pkfare" | undefined;
+  origin: string;
+  destination: string;
+  departDate: string;
+  returnDate?: string | undefined;
+  cabin: string;
+  flightNo: string;
+  passengers: number;
+  /** Per person, as shown on the search page. Only picks between several fares on the same flight. */
+  price: string;
+  currency: string;
+};
+
+/** The fare as the supplier states it right now. Never contains passenger ids or keys. */
 export type PublicQuote = {
   total: string;
   currency: string;
@@ -44,8 +62,6 @@ export type CheckoutView = {
   reference: string;
   /** Stripe test key: no real money moves. */
   testMode: boolean;
-  /** Stripe test key with live Duffel fares: the card step can be tried, but no ticket can be booked. */
-  noTicketInThisMode: boolean;
   paymentStatus: PaymentStatus;
   bookingStatus: BookingStatus;
   currency: string;
@@ -64,7 +80,7 @@ export type CheckoutView = {
   /** Only while the customer can still pay. */
   clientSecret: string | null;
   publishableKey: string | null;
-  /** Stripe holds the card amount and the server has not finished the booking yet. */
+  /** Stripe holds the card amount and the server has not recorded it yet. */
   paymentAuthorised: boolean;
 };
 

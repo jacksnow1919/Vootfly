@@ -464,6 +464,48 @@ export type Database = {
           },
         ]
       }
+      card_tokens: {
+        Row: {
+          booking_id: string
+          brand: string | null
+          cardholder_name: string | null
+          created_at: string
+          deleted_at: string | null
+          exp_month: number | null
+          exp_year: number | null
+          id: string
+          last4: string
+          test_mode: boolean
+          token_id: string
+        }
+        Insert: {
+          booking_id: string
+          brand?: string | null
+          cardholder_name?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          exp_month?: number | null
+          exp_year?: number | null
+          id?: string
+          last4: string
+          test_mode: boolean
+          token_id: string
+        }
+        Update: {
+          booking_id?: string
+          brand?: string | null
+          cardholder_name?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          exp_month?: number | null
+          exp_year?: number | null
+          id?: string
+          last4?: string
+          test_mode?: boolean
+          token_id?: string
+        }
+        Relationships: []
+      }
       checkouts: {
         Row: {
           amount: string
@@ -475,6 +517,7 @@ export type Database = {
           card_exp_month: number | null
           card_exp_year: number | null
           cardholder_name: string | null
+          hold_expires_at: string | null
           booking_id: string | null
           booking_status: string
           claimed_at: string | null
@@ -512,6 +555,7 @@ export type Database = {
           card_exp_month?: number | null
           card_exp_year?: number | null
           cardholder_name?: string | null
+          hold_expires_at?: string | null
           booking_id?: string | null
           booking_status?: string
           claimed_at?: string | null
@@ -549,6 +593,7 @@ export type Database = {
           card_exp_month?: number | null
           card_exp_year?: number | null
           cardholder_name?: string | null
+          hold_expires_at?: string | null
           booking_id?: string | null
           booking_status?: string
           claimed_at?: string | null

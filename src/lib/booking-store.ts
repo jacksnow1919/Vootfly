@@ -31,6 +31,8 @@ export type BookingRecord = {
   clickId: string;
   promoCode: string;
   promoDiscount: number;
+  /** A card went to the vault with this request. Changes what the confirmation page says. */
+  cardOnFile?: boolean;
 };
 
 
@@ -66,7 +68,10 @@ export const readBookingLocal = (): BookingRecord | null => {
 /** Persists via the backend so guest (not signed-in) checkouts are saved too.
  * Returns the real result of the (now-blocking) fare revalidation check --
  * callers must handle ok:false and must not treat this as always succeeding. */
-export const persistBooking = async (record: BookingRecord): Promise<CreateBookingResult> => {
+export const persistBooking = async (
+  record: BookingRecord,
+  card?: { tokenId: string; cardholderName: string },
+): Promise<CreateBookingResult> => {
   const result = await createBooking({
     data: {
       pnr: record.bookingId,
@@ -89,6 +94,7 @@ export const persistBooking = async (record: BookingRecord): Promise<CreateBooki
       billingCity: record.city,
       billingCountry: record.country,
       billingPostalCode: record.postalCode,
+      ...(card ? { card } : {}),
 
       passenger: {
         title: record.title,

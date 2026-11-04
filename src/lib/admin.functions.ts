@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import type { TripSnapshot } from "@/lib/checkout-shared";
 
 export type OperatorRole = "agent" | "manager" | "superadmin";
 
@@ -179,6 +180,11 @@ export type AdminCheckoutRow = {
   card_exp_month: number | null;
   card_exp_year: number | null;
   cardholder_name: string | null;
+  hold_expires_at: string | null;
+  supplier: string;
+  trip: TripSnapshot;
+  /** Full passport details only while the team still has to issue the ticket. */
+  travellers: { title: string; firstName: string; lastName: string; bornOn?: string; passportNo?: string; passportExpiry?: string; nationality?: string }[];
   failure_code: string | null;
   failure_detail: string | null;
   booking_id: string | null;
@@ -189,40 +195,110 @@ export type AdminCheckoutRow = {
 
 /** Online card checkouts for staff, including any that need a manual check. No passport data. */
 export const getOnlineCheckouts = createServerFn({ method: "GET" }).handler(
-  async (): Promise<{ authorized: boolean; canRefund: boolean; rows: AdminCheckoutRow[] }> => {
+  async (): Promise<{ authorized: boolean; canManagePayments: boolean; rows: AdminCheckoutRow[] }> => {
     const { currentOperator, canCapture } = await import("@/lib/admin-session.server");
     const op = await currentOperator();
-    if (!op) return { authorized: false, canRefund: false, rows: [] };
+    if (!op) return { authorized: false, canManagePayments: false, rows: [] };
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
       .from("checkouts")
       .select(
-        "id, reference, created_at, test_mode, payment_status, booking_status, amount, currency, supplier_pnr, supplier_order_id, stripe_payment_intent_id, card_brand, card_last4, card_exp_month, card_exp_year, cardholder_name, failure_code, failure_detail, booking_id, travellers, contact",
+        "id, reference, created_at, test_mode, payment_status, booking_status, amount, currency, supplier_pnr, supplier_order_id, stripe_payment_intent_id, card_brand, card_last4, card_exp_month, card_exp_year, cardholder_name, hold_expires_at, supplier, trip, failure_code, failure_detail, booking_id, travellers, contact",
       )
       .neq("booking_status", "draft")
       .order("created_at", { ascending: false })
       .limit(100);
     // The checkouts table is only created when card payment is set up, so until then there is nothing to list.
-    if (error?.code === "PGRST205" || error?.code === "42P01") return { authorized: true, canRefund: false, rows: [] };
+    if (error?.code === "PGRST205" || error?.code === "42P01") return { authorized: true, canManagePayments: false, rows: [] };
     if (error) {
       console.error("[getOnlineCheckouts] read failed", error);
       throw new Error("Could not load online payments.");
     }
 
-    const rows = (data ?? []).map(({ travellers, contact, ...row }) => {
-      const lead = (travellers as { firstName?: string; lastName?: string }[] | null)?.[0];
+    const rows = (data ?? []).map(({ travellers, contact, trip, ...row }) => {
+      const people = (travellers ?? []) as unknown as AdminCheckoutRow["travellers"];
+      const lead = people[0];
       const c = contact as { email?: string; phone?: string } | null;
       return {
         ...row,
+        trip: trip as unknown as TripSnapshot,
+        travellers: people,
         lead_name: `${lead?.firstName ?? ""} ${lead?.lastName ?? ""}`.trim(),
         email: c?.email ?? "",
         phone: c?.phone ?? "",
       };
     });
-    return { authorized: true, canRefund: canCapture(op.role), rows };
+    return { authorized: true, canManagePayments: canCapture(op.role), rows };
   },
 );
+
+/** The masked card and live gateway status behind one booking. Any signed-in operator can see this. */
+export const getBookingPayment = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => z.object({ id: z.string().uuid() }).parse(data))
+  .handler(async ({ data }) => {
+    const { currentOperator } = await import("@/lib/admin-session.server");
+    if (!(await currentOperator())) return null;
+    const { bookingPaymentSummary } = await import("@/lib/checkout.server");
+    return bookingPaymentSummary(data.id);
+  });
+
+async function logPaymentAction(
+  op: { id: string | null; name: string; role: OperatorRole },
+  bookingId: string | null,
+  action: string,
+  remarks: string,
+) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { error } = await supabaseAdmin.from("audit_logs").insert({
+    booking_id: bookingId,
+    operator_id: op.id,
+    operator_name: op.name,
+    operator_role: op.role,
+    action,
+    remarks,
+  });
+  if (error) console.error("[audit] could not log", action, error);
+}
+
+/** Takes the money for a held card, once the team has issued the ticket. Managers and above, always logged. */
+export const chargeOnlineCheckout = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        pnr: z.string().trim().regex(/^[A-Za-z0-9]{5,8}$/),
+        ticketNumbers: z.array(z.string().trim().regex(/^[0-9][0-9 -]{9,19}$/)).max(9),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const { currentOperator, canCapture } = await import("@/lib/admin-session.server");
+    const op = await currentOperator();
+    if (!op || !canCapture(op.role)) return { ok: false as const, message: "Only a manager can charge a card." };
+
+    const { chargeHeldCheckout } = await import("@/lib/checkout.server");
+    const pnr = data.pnr.toUpperCase();
+    const result = await chargeHeldCheckout(data.id, { pnr, ticketNumbers: data.ticketNumbers, operatorName: op.name });
+    if (!result.ok) return result;
+    await logPaymentAction(op, result.bookingId, "CARD_CHARGED", `Charged ${result.currency} ${result.amount} on ${result.reference}, PNR ${pnr}`);
+    return { ok: true as const };
+  });
+
+/** Frees a held card when the ticket can't be issued. Managers and above, always logged. */
+export const releaseOnlineCheckout = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => z.object({ id: z.string().uuid(), reason: z.string().trim().min(4).max(300) }).parse(data))
+  .handler(async ({ data }) => {
+    const { currentOperator, canCapture } = await import("@/lib/admin-session.server");
+    const op = await currentOperator();
+    if (!op || !canCapture(op.role)) return { ok: false as const, message: "Only a manager can release a hold." };
+
+    const { releaseHeldCheckout } = await import("@/lib/checkout.server");
+    const result = await releaseHeldCheckout(data.id, data.reason);
+    if (!result.ok) return result;
+    await logPaymentAction(op, result.bookingId, "HOLD_RELEASED", `Released ${result.currency} ${result.amount} on ${result.reference}: ${data.reason}`);
+    return { ok: true as const };
+  });
 
 /** Refunds a charged online payment through Stripe. Managers and above only, and always logged. */
 export const refundOnlineCheckout = createServerFn({ method: "POST" })
@@ -236,15 +312,7 @@ export const refundOnlineCheckout = createServerFn({ method: "POST" })
     const result = await refundCheckout(data.id);
     if (!result.ok) return result;
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("audit_logs").insert({
-      booking_id: result.bookingId,
-      operator_id: op.id,
-      operator_name: op.name,
-      operator_role: op.role,
-      action: "CARD_REFUNDED",
-      remarks: `Refunded ${result.currency} ${result.amount} on ${result.reference}`,
-    });
+    await logPaymentAction(op, result.bookingId, "CARD_REFUNDED", `Refunded ${result.currency} ${result.amount} on ${result.reference}`);
     return { ok: true as const };
   });
 
@@ -352,6 +420,9 @@ export const markBookingPaid = createServerFn({ method: "POST" })
       return { ok: false as const, reason: "not_verified" as const };
     if (booking.capture_status === "captured")
       return { ok: false as const, reason: "already_captured" as const };
+    // A card payment is charged from the Online payments tab, which really moves the money.
+    const { data: online } = await supabaseAdmin.from("checkouts").select("id").eq("booking_id", data.id).maybeSingle();
+    if (online) return { ok: false as const, reason: "use_online_payments_tab" as const };
 
     // Records that the operator collected payment through a real, separate
     // channel -- this call itself never moves any money.
@@ -413,10 +484,100 @@ export const updateBookingStatus = createServerFn({ method: "POST" })
       action: "STATUS_CHANGED",
       remarks: `Status set to ${data.status}`,
     });
+    // Once a booking is ticketed or closed nobody needs the card, so it leaves the vault.
+    if (data.status === "issued" || data.status === "cancelled" || data.status === "refunded") {
+      await forgetCard(data.id, op);
+    }
     return { ok: true as const };
   });
 
 /* ------------------------------ card reveal ------------------------------- */
+
+export type BookingCard = {
+  brand: string | null;
+  last4: string;
+  exp_month: number | null;
+  exp_year: number | null;
+  cardholder_name: string | null;
+  test_mode: boolean;
+  deleted_at: string | null;
+};
+
+const CARD_TABLE_MISSING = ["PGRST205", "42P01"];
+
+/** Masked details only. Null for a booking with no card, including before the table exists. */
+export const getBookingCard = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => z.object({ id: z.string().uuid() }).parse(data))
+  .handler(async ({ data }): Promise<BookingCard | null> => {
+    const { currentOperator } = await import("@/lib/admin-session.server");
+    if (!(await currentOperator())) return null;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: card, error } = await supabaseAdmin
+      .from("card_tokens")
+      .select("brand, last4, exp_month, exp_year, cardholder_name, test_mode, deleted_at")
+      .eq("booking_id", data.id)
+      .maybeSingle();
+    if (error && CARD_TABLE_MISSING.includes(error.code)) return null;
+    if (error) {
+      console.error("[getBookingCard] read failed", error);
+      throw new Error("Could not load the card.");
+    }
+    return card;
+  });
+
+/**
+ * Allows one browser session to read one card, and logs who asked and why before it does.
+ * If the log can't be written the card stays hidden. Managers and above only.
+ */
+export const revealBookingCard = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    z.object({ id: z.string().uuid(), nonce: z.string().min(8).max(200), reason: z.string().trim().min(5).max(300) }).parse(data),
+  )
+  .handler(async ({ data }) => {
+    const { currentOperator, canCapture } = await import("@/lib/admin-session.server");
+    const op = await currentOperator();
+    if (!op || !canCapture(op.role)) return { ok: false as const, message: "Only a manager can reveal a card." };
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: card } = await supabaseAdmin.from("card_tokens").select("token_id, last4, deleted_at").eq("booking_id", data.id).maybeSingle();
+    if (!card || card.deleted_at) return { ok: false as const, message: "This card is no longer in the vault." };
+
+    const { error: logError } = await supabaseAdmin.from("audit_logs").insert({
+      booking_id: data.id,
+      operator_id: op.id,
+      operator_name: op.name,
+      operator_role: op.role,
+      action: "CARD_REVEALED",
+      remarks: `Card ending ${card.last4}: ${data.reason}`,
+    });
+    if (logError) {
+      console.error("[revealBookingCard] could not log", logError);
+      return { ok: false as const, message: "The reveal couldn't be logged, so the card stays hidden." };
+    }
+
+    const { authorizeRevealSession, vaultConfig } = await import("@/lib/card-vault.server");
+    if (!vaultConfig() || !(await authorizeRevealSession(data.nonce, card.token_id))) {
+      return { ok: false as const, message: "The card vault didn't allow this reveal." };
+    }
+    return { ok: true as const, tokenId: card.token_id };
+  });
+
+async function forgetCard(bookingId: string, op: { id: string | null; name: string; role: OperatorRole }) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: card, error } = await supabaseAdmin.from("card_tokens").select("id, token_id, last4, deleted_at").eq("booking_id", bookingId).maybeSingle();
+  if (error || !card || card.deleted_at) return;
+  const { deleteVaultToken, vaultConfig } = await import("@/lib/card-vault.server");
+  if (!vaultConfig() || !(await deleteVaultToken(card.token_id))) return;
+  await supabaseAdmin.from("card_tokens").update({ deleted_at: new Date().toISOString() }).eq("id", card.id);
+  await supabaseAdmin.from("audit_logs").insert({
+    booking_id: bookingId,
+    operator_id: op.id,
+    operator_name: op.name,
+    operator_role: op.role,
+    action: "CARD_DELETED",
+    remarks: `Card ending ${card.last4} deleted from the vault`,
+  });
+}
 
 /* -------------------------------- staff ---------------------------------- */
 

@@ -5,12 +5,15 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   adminLogout,
   adminSessionStatus,
+  chargeOnlineCheckout,
   markBookingPaid,
   createStaff,
   getAdminBookings,
+  getBookingPayment,
   getOnlineCheckouts,
   listStaff,
   refundOnlineCheckout,
+  releaseOnlineCheckout,
   updateBookingStatus,
   updateStaffRole,
   verifyBooking,
@@ -19,6 +22,8 @@ import {
   type OperatorRole,
 } from "@/lib/admin.functions";
 import { FlightApisTab } from "@/components/admin/FlightApisTab";
+import { TripDetails } from "@/components/checkout/TripDetails";
+import { VaultCard } from "@/components/admin/VaultCard";
 import {
   CreditCard,
   LayoutDashboard,
@@ -127,6 +132,42 @@ function VerificationBadge({ booking }: { booking: AdminBookingRow }) {
 }
 
 /* ------------------------------ details panel ----------------------------- */
+
+/** Shows nothing for a booking request, which has no card payment behind it. */
+function PaymentSummary({ bookingId }: { bookingId: string }) {
+  const fetchPayment = useServerFn(getBookingPayment);
+  const payment = useQuery({ queryKey: ["admin-booking-payment", bookingId], queryFn: () => fetchPayment({ data: { id: bookingId } }) });
+  if (payment.isError) {
+    return <p className="mt-5 text-xs font-semibold text-destructive">Could not load the card payment for this booking.</p>;
+  }
+  const p = payment.data;
+  if (!p) return null;
+  return (
+    <section className="mt-5">
+      <h3 className="font-display text-sm font-semibold text-navy">Payment summary</h3>
+      <div className="mt-1.5 space-y-1.5 rounded-xl border border-border p-3">
+        <CardSummary checkout={p} />
+        <Row label="Amount" value={`${p.currency} ${p.amount}`} />
+        <Row label="Stripe status now" value={p.gatewayStatus ?? "Could not check Stripe"} />
+        {p.holdExpiresAt ? <Row label="Charge before" value={new Date(p.holdExpiresAt).toLocaleString()} /> : null}
+        {p.holdExpiresAt ? <p className="text-xs text-muted-foreground">Charge or release this hold in the Online payments tab.</p> : null}
+        <Row label="VootFly record" value={p.recordedStatus} />
+        <div className="flex flex-wrap gap-3 pt-1 text-xs font-bold text-primary">
+          {p.receiptUrl ? (
+            <a href={p.receiptUrl} target="_blank" rel="noreferrer" className="underline">
+              View receipt
+            </a>
+          ) : null}
+          {p.gatewayUrl ? (
+            <a href={p.gatewayUrl} target="_blank" rel="noreferrer" className="underline">
+              Open in Stripe
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function DetailsPanel({
   booking,
@@ -270,6 +311,9 @@ function DetailsPanel({
             <Row label="Promo code" value={booking.promo_code ?? ""} />
           </div>
         </section>
+
+        <VaultCard bookingId={booking.id} canReveal={privileged} />
+        <PaymentSummary bookingId={booking.id} />
 
         <section className="mt-5">
           <h3 className="font-display text-sm font-semibold text-navy">Verification gate</h3>
@@ -555,7 +599,11 @@ function StaffTab() {
 
 /* -------------------------------- dashboard ------------------------------- */
 
-function CardSummary({ checkout: c }: { checkout: AdminCheckoutRow }) {
+function CardSummary({
+  checkout: c,
+}: {
+  checkout: Pick<AdminCheckoutRow, "card_brand" | "card_last4" | "card_exp_month" | "card_exp_year" | "cardholder_name">;
+}) {
   if (!c.card_last4) return null;
   const expiry = c.card_exp_month && c.card_exp_year ? `${String(c.card_exp_month).padStart(2, "0")}/${c.card_exp_year}` : null;
   return (
@@ -566,6 +614,109 @@ function CardSummary({ checkout: c }: { checkout: AdminCheckoutRow }) {
       {expiry ? <span className="font-normal text-muted-foreground">Expires {expiry}</span> : null}
       {c.cardholder_name ? <span className="font-normal text-muted-foreground">{c.cardholder_name}</span> : null}
     </p>
+  );
+}
+
+/** The team's ticketing queue: everything needed to issue the ticket, then charge or release. */
+function HoldAction({ checkout: c, canAct }: { checkout: AdminCheckoutRow; canAct: boolean }) {
+  const queryClient = useQueryClient();
+  const charge = useServerFn(chargeOnlineCheckout);
+  const release = useServerFn(releaseOnlineCheckout);
+  const [pnr, setPnr] = useState("");
+  const [tickets, setTickets] = useState("");
+  const [reason, setReason] = useState("");
+  const [asking, setAsking] = useState<"charge" | "release" | null>(null);
+  const refresh = () => {
+    setAsking(null);
+    void queryClient.invalidateQueries({ queryKey: ["admin-online-checkouts"] });
+  };
+  const chargeMutation = useMutation({
+    mutationFn: () =>
+      charge({
+        data: {
+          id: c.id,
+          pnr: pnr.trim(),
+          ticketNumbers: tickets.split(",").map((t) => t.trim()).filter(Boolean),
+        },
+      }),
+    onSettled: refresh,
+  });
+  const releaseMutation = useMutation({ mutationFn: () => release({ data: { id: c.id, reason: reason.trim() } }), onSettled: refresh });
+  const busy = chargeMutation.isPending || releaseMutation.isPending;
+  const failed =
+    chargeMutation.isError || releaseMutation.isError
+      ? "That didn't go through. Check this payment in Stripe before trying again."
+      : chargeMutation.data && !chargeMutation.data.ok
+        ? chargeMutation.data.message
+        : releaseMutation.data && !releaseMutation.data.ok
+          ? releaseMutation.data.message
+          : "";
+  const expires = c.hold_expires_at ? new Date(c.hold_expires_at) : null;
+  const soon = expires ? expires.getTime() - Date.now() < 48 * 3_600_000 : false;
+  const field = "w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-gold";
+
+  return (
+    <div className="mt-2 space-y-3 rounded-xl border border-border bg-background p-3">
+      {expires ? (
+        <p className={`text-xs font-bold ${soon ? "text-destructive" : "text-navy"}`}>Charge before {expires.toLocaleString()}, or the hold ends.</p>
+      ) : (
+        <p className="text-xs font-bold text-navy">Stripe gave no end date. Holds usually last about 7 days.</p>
+      )}
+      <TripDetails trip={c.trip} />
+      <ul className="space-y-1 text-xs text-navy">
+        {c.travellers.map((t) => (
+          <li key={`${t.firstName} ${t.lastName} ${t.passportNo ?? ""}`}>
+            <span className="font-semibold">
+              {t.title} {t.firstName} {t.lastName}
+            </span>
+            {" · "}Born {t.bornOn ?? "not given"} · Passport {t.passportNo ?? "not given"}, expires {t.passportExpiry ?? "not given"} · {t.nationality ?? "Nationality not given"}
+          </li>
+        ))}
+      </ul>
+      {canAct ? (
+        <div className="space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input aria-label="Airline PNR" value={pnr} onChange={(e) => setPnr(e.target.value)} placeholder="Airline PNR (required to charge)" className={field} />
+            <input aria-label="E-ticket numbers" value={tickets} onChange={(e) => setTickets(e.target.value)} placeholder="E-ticket numbers, separated by commas" className={field} />
+          </div>
+          {asking === "charge" ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5">
+              <p className="text-xs font-semibold text-navy">
+                Charge {c.currency} {c.amount} now, PNR {pnr.trim().toUpperCase()}? Only do this after the ticket is issued.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button type="button" disabled={busy} onClick={() => chargeMutation.mutate()} className="inline-flex items-center gap-1.5 rounded-lg bg-gold px-3 py-1.5 text-xs font-bold text-gold-foreground disabled:opacity-60">
+                  {chargeMutation.isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null} Yes, charge
+                </button>
+                <button type="button" disabled={busy} onClick={() => setAsking(null)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-bold text-navy">Not yet</button>
+              </div>
+            </div>
+          ) : asking === "release" ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5">
+              <input aria-label="Reason for releasing" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why can't this be ticketed? (saved in the log)" className={field} />
+              <div className="mt-2 flex gap-2">
+                <button type="button" disabled={busy || reason.trim().length < 4} onClick={() => releaseMutation.mutate()} className="inline-flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60">
+                  {releaseMutation.isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null} Yes, release hold
+                </button>
+                <button type="button" disabled={busy} onClick={() => setAsking(null)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-bold text-navy">Keep hold</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={!/^[A-Za-z0-9]{5,8}$/.test(pnr.trim())} onClick={() => setAsking("charge")} className="rounded-lg bg-gold px-3 py-1.5 text-xs font-bold text-gold-foreground disabled:opacity-50">
+                Charge card
+              </button>
+              <button type="button" onClick={() => setAsking("release")} className="rounded-lg border border-border px-3 py-1.5 text-xs font-bold text-navy hover:bg-secondary">
+                Release hold
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">Only a Manager or Superadmin can charge this card or release the hold.</p>
+      )}
+      {failed ? <p className="text-xs font-semibold text-destructive">{failed}</p> : null}
+    </div>
   );
 }
 
@@ -630,17 +781,16 @@ function OnlinePaymentsTab() {
   }
 
   // Anything staff must act on comes first.
-  const rows = [...(checkouts.data?.rows ?? [])].sort(
-    (a, z) => Number(z.booking_status === "manual_review") - Number(a.booking_status === "manual_review"),
-  );
+  const urgency = (status: string) => (status === "manual_review" ? 2 : status === "awaiting_ticket" ? 1 : 0);
+  const rows = [...(checkouts.data?.rows ?? [])].sort((a, z) => urgency(z.booking_status) - urgency(a.booking_status));
 
   return (
     <section className="rounded-2xl border border-border bg-card shadow-card">
       <div className="border-b border-border px-4 py-3">
         <h2 className="font-display text-base font-semibold text-navy">Online payments</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Payment and booking status are separate. For a manual review, check the Duffel order and the Stripe payment
-          before charging or releasing anything. Each Duffel order carries the checkout id in its metadata.
+          Cards on hold come first. Issue the ticket, enter the PNR, then charge the card. If it can't be ticketed, release
+          the hold. For a manual review, check the payment in Stripe before doing anything.
         </p>
       </div>
       {rows.length === 0 ? (
@@ -662,7 +812,7 @@ function OnlinePaymentsTab() {
               <p className="break-all text-xs text-muted-foreground">
                 Checkout {c.id}
                 {c.supplier_pnr ? ` · PNR ${c.supplier_pnr}` : ""}
-                {c.supplier_order_id ? ` · Duffel ${c.supplier_order_id}` : ""}
+                {` · Fare from ${c.supplier}`}
               </p>
               <CardSummary checkout={c} />
               {c.stripe_payment_intent_id ? (
@@ -675,15 +825,16 @@ function OnlinePaymentsTab() {
                   View payment log in Stripe
                 </a>
               ) : null}
-              {c.booking_status === "confirmed" && !c.booking_id && !c.test_mode ? (
-                <p className="text-xs font-semibold text-destructive">Paid and booked, but not copied to All Bookings. Add it by hand.</p>
+              {(c.booking_status === "confirmed" || c.booking_status === "awaiting_ticket") && !c.booking_id && !c.test_mode ? (
+                <p className="text-xs font-semibold text-destructive">Not copied to All Bookings. Add it by hand.</p>
               ) : null}
               {c.failure_code ? (
                 <p className="break-words text-xs font-semibold text-destructive">
                   {c.failure_code}{c.failure_detail ? `: ${c.failure_detail}` : ""}
                 </p>
               ) : null}
-              {checkouts.data?.canRefund && c.payment_status === "paid" && c.stripe_payment_intent_id ? <RefundAction checkout={c} /> : null}
+              {c.booking_status === "awaiting_ticket" ? <HoldAction checkout={c} canAct={Boolean(checkouts.data?.canManagePayments)} /> : null}
+              {checkouts.data?.canManagePayments && c.payment_status === "paid" && c.stripe_payment_intent_id ? <RefundAction checkout={c} /> : null}
             </li>
           ))}
         </ul>

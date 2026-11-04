@@ -25,6 +25,8 @@ export type FlightSearch = {
   supplier?: string;
   /** The Duffel offer behind this fare. Without it a fare can only be requested, not paid for and booked. */
   offer?: string;
+  /** Shows the card form while the vault is in test mode. Ordinary customers don't have it. */
+  cardtest?: string;
 };
 
 const str = (v: unknown, fallback: string) => {
@@ -97,6 +99,7 @@ export const parseFlightSearch = (search: Record<string, unknown>): FlightSearch
   ...(str(search["final_price"], "") ? { final_price: str(search["final_price"], "") } : {}),
   ...(["duffel", "mcontent", "pkfare"].includes(str(search["supplier"], "")) ? { supplier: str(search["supplier"], "") } : {}),
   ...(/^off_[A-Za-z0-9_-]{6,80}$/.test(str(search["offer"], "")) ? { offer: str(search["offer"], "") } : {}),
+  ...(str(search["cardtest"], "") === "1" ? { cardtest: "1" } : {}),
   };
 };
 

@@ -7,16 +7,30 @@ import type { CheckoutView, QuoteResult, StartCheckoutResult } from "@/lib/check
 const offerId = z.string().regex(/^off_[A-Za-z0-9_-]{6,80}$/);
 const checkoutInput = z.object({ checkoutId: z.string().uuid() });
 
-/** The fare as the airline states it right now, for the review page. */
-export const getOfferQuote = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ offerId }).parse(data))
+const fareRef = z.object({
+  offerId: offerId.optional(),
+  supplier: z.enum(["duffel", "mcontent", "pkfare"]).optional(),
+  origin: z.string().min(3).max(4),
+  destination: z.string().min(3).max(4),
+  departDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  cabin: z.string().max(40),
+  flightNo: z.string().min(1).max(60),
+  passengers: z.number().int().min(1).max(9),
+  price: z.string().max(20),
+  currency: z.string().min(3).max(6),
+});
+
+/** The fare as the supplier states it right now, for the review page. */
+export const getFareQuote = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => fareRef.parse(data))
   .handler(async ({ data }): Promise<QuoteResult> => {
-    const { quoteOffer } = await import("@/lib/checkout.server");
-    return quoteOffer(data.offerId);
+    const { quoteFare } = await import("@/lib/checkout.server");
+    return quoteFare(data);
   });
 
 const startInput = z.object({
-  offerId,
+  fare: fareRef,
   expectedTotal: z.string().max(20),
   acceptedTerms: z.literal(true),
   travellers: z.array(passengerSchema).min(1).max(9),
@@ -60,7 +74,7 @@ export const beginCheckout = createServerFn({ method: "POST" })
 
     const { startCheckout } = await import("@/lib/checkout.server");
     return startCheckout({
-      offerId: data.offerId,
+      fare: data.fare,
       expectedTotal: data.expectedTotal,
       travellers,
       contact: { ...data.contact, phone, email: data.contact.email.trim() },
@@ -79,7 +93,7 @@ export const getCheckout = createServerFn({ method: "POST" })
 
 /**
  * Called after the card form reports success. That report is not trusted: this asks Stripe
- * itself, and only a real hold leads to a booking.
+ * itself, and only a real hold reaches the sales team.
  */
 export const confirmCheckoutPayment = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => checkoutInput.parse(data))
