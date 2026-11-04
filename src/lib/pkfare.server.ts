@@ -448,9 +448,15 @@ export async function runPkfareSearch(query: PkfareSearchQuery): Promise<PkfareN
     return [];
   }
   const { liveFareProviders } = await import("./fare-provider.server");
-  const providers = query.supplier ? [query.supplier] : liveFareProviders();
+  const { keepAlive, pausedProviders } = await import("./provider-control.server");
+  const paused = await pausedProviders();
+  const providers = (query.supplier ? [query.supplier] : liveFareProviders()).filter((p) => !paused.has(p));
+  if (providers.length === 0) return [];
   if (providers.length === 1) return runOneSupplier(providers[0]!, query);
-  return firstWithFares(providers.map((p) => runOneSupplier(p, query)));
+  const runs = providers.map((p) => runOneSupplier(p, query));
+  // Slower APIs finish after the customer has fares, so their answers still get recorded.
+  keepAlive(Promise.allSettled(runs));
+  return firstWithFares(runs);
 }
 
 /** One supplier's search, with every fare tagged with that supplier. */
@@ -464,8 +470,18 @@ async function runOneSupplier(
       : supplier === "mcontent"
         ? (await import("./mcontent.server")).runMContentSearch
         : runPkfareSearchDirect;
-  const fares = await run(query);
-  return fares.map((f) => ({ ...f, supplier }));
+  const { logProviderAnswer } = await import("./provider-control.server");
+  const started = Date.now();
+  const answer = { supplier, origin: query.origin, destination: query.destination };
+  try {
+    const fares = await run(query);
+    logProviderAnswer({ ...answer, fares: fares.length, durationMs: Date.now() - started, error: null });
+    return fares.map((f) => ({ ...f, supplier }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logProviderAnswer({ ...answer, fares: 0, durationMs: Date.now() - started, error: message });
+    throw error;
+  }
 }
 
 /**

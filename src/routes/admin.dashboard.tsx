@@ -15,8 +15,10 @@ import {
   type AdminBookingRow,
   type OperatorRole,
 } from "@/lib/admin.functions";
+import { FlightApisTab } from "@/components/admin/FlightApisTab";
 import {
   LayoutDashboard,
+  PlaneTakeoff,
   Ticket,
   Users,
   DollarSign,
@@ -555,7 +557,7 @@ function AdminDashboard() {
   const logout = useServerFn(adminLogout);
   const sessionStatus = useServerFn(adminSessionStatus);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"bookings" | "staff">("bookings");
+  const [tab, setTab] = useState<"bookings" | "apis" | "staff">("bookings");
 
   const session = useQuery({
     queryKey: ["admin-session"],
@@ -628,6 +630,16 @@ function AdminDashboard() {
             }`}
           >
             <LayoutDashboard className="size-4" /> All Bookings &amp; PNR Queue
+          </button>
+          <button
+            onClick={() => setTab("apis")}
+            className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition ${
+              tab === "apis"
+                ? "bg-white/15 text-navy-foreground"
+                : "text-navy-foreground/80 hover:bg-white/10"
+            }`}
+          >
+            <PlaneTakeoff className="size-4" /> Flight APIs
           </button>
           <button
             onClick={() => setTab("staff")}
@@ -750,6 +762,10 @@ function AdminDashboard() {
               </table>
             </div>
           </section>
+        ) : tab === "apis" ? (
+          <div className="mt-6">
+            <FlightApisTab />
+          </div>
         ) : (
           <div className="mt-6">
             <StaffTab />

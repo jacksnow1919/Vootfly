@@ -1503,6 +1503,39 @@ export type Database = {
         }
         Relationships: []
       }
+      provider_search_log: {
+        Row: {
+          created_at: string
+          destination: string | null
+          duration_ms: number
+          error: string | null
+          fares: number
+          id: string
+          origin: string | null
+          supplier: string
+        }
+        Insert: {
+          created_at?: string
+          destination?: string | null
+          duration_ms: number
+          error?: string | null
+          fares?: number
+          id?: string
+          origin?: string | null
+          supplier: string
+        }
+        Update: {
+          created_at?: string
+          destination?: string | null
+          duration_ms?: number
+          error?: string | null
+          fares?: number
+          id?: string
+          origin?: string | null
+          supplier?: string
+        }
+        Relationships: []
+      }
       suppliers: {
         Row: {
           code: string

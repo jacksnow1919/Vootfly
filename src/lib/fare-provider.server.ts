@@ -38,6 +38,10 @@ export function mcontentCredentials(): { siteId: string; source: string } | null
   return siteId && source ? { siteId, source } : null;
 }
 
+export function pkfareConfigured(): boolean {
+  return Boolean(process.env["PKFARE_PARTNER_ID"]?.trim() && process.env["PKFARE_PARTNER_KEY"]?.trim());
+}
+
 /** Suppliers to ask for a normal search, in order of preference for labels. */
 export function liveFareProviders(): FareProvider[] {
   const forced = (process.env["FARE_PROVIDER"] ?? "").trim().toLowerCase();
@@ -45,6 +49,7 @@ export function liveFareProviders(): FareProvider[] {
   const list: FareProvider[] = [];
   if (duffelToken()) list.push("duffel");
   if (mcontentCredentials()) list.push("mcontent");
+  if (pkfareConfigured()) list.push("pkfare");
   return list.length ? list : ["pkfare"];
 }
 
