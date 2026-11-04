@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Lock, ShieldCheck, User } from "lucide-react";
+import { CreditCard, Loader2, Lock, ShieldCheck, User } from "lucide-react";
 import { parseFlightSearch, currencySymbol } from "@/lib/flight-search-params";
 import { SearchSelect } from "@/components/checkout/SearchSelect";
 import { VaultCardForm, type VaultCard, type VaultCardFormHandle } from "@/components/checkout/VaultCardForm";
@@ -821,8 +821,17 @@ function BookingPage() {
               <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 sm:p-6">
                   <h2 className="font-display text-lg font-semibold text-navy">
-                    {payable || (cardOn && step === 2) ? "Review Your Booking" : cardOn ? "Payment" : <>Review &amp; Request Booking</>}
+                    {payable || (cardOn && step === 2) ? "Review Your Booking" : cardOn ? "Make Your Payment" : <>Review &amp; Request Booking</>}
                   </h2>
+                  {cardOn && step === 3 ? (
+                    <div className="flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-widest text-navy">
+                      {["Visa", "Mastercard", "Amex", "Maestro"].map((brand) => (
+                        <span key={brand} className="rounded-md border border-border bg-secondary px-2 py-1">
+                          {brand}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="grid gap-3 p-4 sm:p-6">
                   {liveQuote ? (
@@ -891,10 +900,10 @@ function BookingPage() {
                       </span>
                     ) : cardOn ? (
                       <span className="text-xs text-muted-foreground">
-                        I accept VootFly's <a href="/terms" className="font-semibold underline">Terms &amp; Conditions</a> and{" "}
-                        <a href="/refund-policy" className="font-semibold underline">Refund &amp; Cancellation Policy</a>. I authorize
-                        VootFly, or the airline or ticketing partner issuing my ticket, to charge this card for the fare confirmed
-                        with me, once my ticket is issued.
+                        By clicking on "Confirm Booking" I accept the <a href="/terms" className="font-semibold underline">Terms &amp; Conditions</a> and{" "}
+                        <a href="/refund-policy" className="font-semibold underline">Refund &amp; Cancellation Policy</a> of VootFly, and I accept
+                        that my bank card will be charged, by VootFly or the airline or ticketing partner, for the fare confirmed with me when my
+                        ticket is issued.
                       </span>
                     ) : (
                       <span className="text-xs text-muted-foreground">
@@ -1111,15 +1120,17 @@ function CardFormOff() {
   );
   return (
     <div className="rounded-xl border border-border bg-secondary/40 p-4 sm:col-span-2">
-      <p className="text-sm font-bold text-navy">Card details</p>
+      <p className="flex items-center gap-2 text-sm font-bold text-navy">
+        <CreditCard className="size-4 text-gold" aria-hidden="true" /> Card details
+      </p>
       <p role="status" className="mt-3 rounded-lg border border-amber-400 bg-amber-50 p-2.5 text-xs font-semibold text-amber-900">
         Preview only. These fields turn on once the card vault is connected.
       </p>
       <div className="mt-3 grid grid-cols-2 gap-3">
-        {field("Card Number", "1234 5678 9012 3456", true)}
-        {field("Expiry Date", "MM / YY")}
-        {field("CVC", "123")}
         {field("Name on Card", "As printed on the card", true)}
+        {field("Card Number", "4242 4242 4242 4242", true)}
+        {field("Expiry", "MM / YY")}
+        {field("CVV", "123")}
       </div>
     </div>
   );

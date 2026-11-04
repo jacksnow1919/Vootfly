@@ -29,9 +29,9 @@ export const VaultCardForm = forwardRef<VaultCardFormHandle, { config: VaultConf
           const { basistheory } = await import("@basis-theory/web-elements");
           const client = await basistheory(config.publicKey, { environment: config.environment === "production" ? "production" : "test" });
           if (!client || !active) return;
-          const number = client.createElement("cardNumber", { targetId: "vault-card-number", style: STYLE, autoComplete: "cc-number", placeholder: "1234 5678 9012 3456" });
+          const number = client.createElement("cardNumber", { targetId: "vault-card-number", style: STYLE, autoComplete: "cc-number", placeholder: "4242 4242 4242 4242" });
           const expiry = client.createElement("cardExpirationDate", { targetId: "vault-card-expiry", style: STYLE, autoComplete: "cc-exp", placeholder: "MM / YY" });
-          const cvc = client.createElement("cardVerificationCode", { targetId: "vault-card-cvc", style: STYLE, autoComplete: "cc-csc", placeholder: "CVC" });
+          const cvc = client.createElement("cardVerificationCode", { targetId: "vault-card-cvc", style: STYLE, autoComplete: "cc-csc", placeholder: "123" });
           number.on("change", (e) => {
             setComplete((c) => ({ ...c, number: e.complete }));
             void cvc.update({ cardBrand: e.cardBrand });
@@ -100,18 +100,6 @@ export const VaultCardForm = forwardRef<VaultCardFormHandle, { config: VaultConf
           </p>
         ) : null}
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <div className="col-span-2">
-            <span className={LABEL}>Card Number *</span>
-            <div id="vault-card-number" className={BOX} />
-          </div>
-          <div>
-            <span className={LABEL}>Expiry Date *</span>
-            <div id="vault-card-expiry" className={BOX} />
-          </div>
-          <div>
-            <span className={LABEL}>CVC *</span>
-            <div id="vault-card-cvc" className={BOX} />
-          </div>
           <label className="col-span-2 block">
             <span className={LABEL}>Name on Card *</span>
             <input
@@ -122,10 +110,22 @@ export const VaultCardForm = forwardRef<VaultCardFormHandle, { config: VaultConf
               className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-gold"
             />
           </label>
+          <div className="col-span-2">
+            <span className={LABEL}>Card Number *</span>
+            <div id="vault-card-number" className={BOX} />
+          </div>
+          <div>
+            <span className={LABEL}>Expiry *</span>
+            <div id="vault-card-expiry" className={BOX} />
+          </div>
+          <div>
+            <span className={LABEL}>CVV *</span>
+            <div id="vault-card-cvc" className={BOX} />
+          </div>
         </div>
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          Your card is not charged on this page. It is stored by our PCI-certified card vault, not on VootFly's systems. Our team
-          confirms the fare with you, and the charge is made when your ticket is issued. The CVC is deleted automatically.
+          Your card number goes straight to our secure card vault and is only ever shown masked on VootFly. The CVV is deleted
+          automatically. Funds are charged only after our team verifies your booking and issues your ticket.
         </p>
       </div>
     );
