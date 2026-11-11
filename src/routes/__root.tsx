@@ -130,13 +130,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "manifest", href: "/site.webmanifest" },
     ],
     scripts: [
-      // Google tag (gtag.js) -- GA4 property G-SVEMV8T5N5. In head(), not a
-      // useEffect, so it's present on the very first server-rendered
-      // response and loads as early as Google recommends, rather than only
-      // after client-side hydration (unlike initAnalytics()/Mixpanel below,
-      // which is deliberately client-only). Runs alongside Mixpanel, not in
-      // place of it -- two separate, independent analytics tools.
-      { src: "https://www.googletagmanager.com/gtag/js?id=G-SVEMV8T5N5", async: true },
+      // Google tag -- GA4 property G-SVEMV8T5N5. Only this small queue is in the
+      // first response: page views and events wait in dataLayer. gtag.js itself
+      // (about 180 KB) loads once the page has finished, from RootComponent below
+      // (11 Nov 2026, mobile PageSpeed), so it no longer slows the first screen.
       {
         children: `window.dataLayer = window.dataLayer || [];
 function gtag(){dataLayer.push(arguments);}
@@ -166,6 +163,16 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+/** Adds gtag.js once. The queue in head() has kept every page view and event until now. */
+function loadGoogleTag() {
+  if (document.getElementById("gtag-js")) return;
+  const script = document.createElement("script");
+  script.id = "gtag-js";
+  script.async = true;
+  script.src = "https://www.googletagmanager.com/gtag/js?id=G-SVEMV8T5N5";
+  document.head.appendChild(script);
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
@@ -175,9 +182,13 @@ function RootComponent() {
     // idle (29 Oct 2026, mobile PageSpeed), so it never competes with the first
     // render. It still records the page view, just a moment later.
     const start = () => {
+      const run = () => {
+        initAnalytics();
+        loadGoogleTag();
+      };
       const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
-      if (ric) ric(() => initAnalytics(), { timeout: 4000 });
-      else setTimeout(initAnalytics, 1500);
+      if (ric) ric(run, { timeout: 4000 });
+      else setTimeout(run, 1500);
     };
     if (document.readyState === "complete") start();
     else window.addEventListener("load", start, { once: true });

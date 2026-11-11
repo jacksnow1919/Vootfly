@@ -160,7 +160,7 @@ const POPULAR_CARD_IMAGES: Record<string, CardImage> = {
 };
 const cardImg = (c: CardImage) => ({
   thumb: `/images/routes/${c.file}-600.webp`,
-  thumbSrcSet: `/images/routes/${c.file}-600.webp 600w, /images/routes/${c.file}.webp ${c.width}w`,
+  thumbSrcSet: `/images/routes/${c.file}-300.webp 300w, /images/routes/${c.file}-600.webp 600w, /images/routes/${c.file}.webp ${c.width}w`,
   alt: c.alt,
 });
 /* Featured route cards show the city the trip starts from, so they do not repeat the destination
@@ -328,7 +328,7 @@ export function WhyVootFly() {
           <img
             src={WHY_PHOTO.thumb}
             srcSet={WHY_PHOTO.thumbSrcSet}
-            sizes="(min-width: 1024px) 400px, 100vw"
+            sizes="(min-width: 1024px) 400px, calc(100vw - 32px)"
             alt=""
             width={900}
             height={600}

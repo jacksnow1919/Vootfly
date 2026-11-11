@@ -82,10 +82,33 @@ export type StoredPhotoRow = {
   source_page_url: string | null;
 };
 
+/** Same photo at other widths, when the saved link is on Unsplash's resizing CDN. Undefined otherwise. */
+function unsplashSrcSet(link: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(link);
+  } catch {
+    return undefined;
+  }
+  const w = Number(url.searchParams.get("w"));
+  const h = Number(url.searchParams.get("h"));
+  if (url.hostname !== "images.unsplash.com" || !w) return undefined;
+  return [240, 320, 400, 600]
+    .map((width) => {
+      const next = new URL(url);
+      next.searchParams.set("w", String(width));
+      if (h) next.searchParams.set("h", String(Math.round((width * h) / w)));
+      return `${next.toString()} ${width}w`;
+    })
+    .join(", ");
+}
+
 export function photoFromStored(row: StoredPhotoRow): DestPhoto {
+  const thumbSrcSet = unsplashSrcSet(row.thumb_url);
   return {
     url: row.public_url,
     thumb: row.thumb_url,
+    ...(thumbSrcSet ? { thumbSrcSet } : {}),
     og: row.public_url,
     alt: row.alt,
     credit: row.credit,
@@ -101,7 +124,8 @@ export function photoFromUnsplash(img: DestinationImage, thumbRatio = 4 / 3): De
   return {
     url: u(2000, 1125),
     thumb: t(600),
-    thumbSrcSet: `${t(400)} 400w, ${t(600)} 600w, ${t(900)} 900w, ${t(1200)} 1200w`,
+    // Phones show cards about 170 px wide, so they need the 320 px file, not the 400 px one.
+    thumbSrcSet: [240, 320, 400, 600, 800, 1200].map((w) => `${t(w)} ${w}w`).join(", "),
     og: u(1200, 630),
     alt: img.alt,
     credit: img.credit,
