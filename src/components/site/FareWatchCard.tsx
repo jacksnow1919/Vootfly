@@ -28,6 +28,7 @@ export function FareWatchCard({
   baselineCurrency,
   source = "route_page",
   variant = "card",
+  hideBaselineInText = false,
 }: {
   fromCode: string;
   toCode: string;
@@ -40,7 +41,13 @@ export function FareWatchCard({
   source?: "route_page" | "search_results";
   /** "inline" renders as a plain band in the page flow instead of a card (29 Oct 2026). */
   variant?: "card" | "inline";
+  /** Save the starting price with the alert but leave it out of this card's text
+   * (14 Nov 2026, strict route pages): there the only price shown is the fare box
+   * above, with its dates, passengers and check time. Alerts without a starting
+   * price are never sent, so the price must still be stored. */
+  hideBaselineInText?: boolean;
 }) {
+  const shownBaseline = hideBaselineInText ? undefined : baselinePrice;
   const create = useServerFn(createPriceAlert);
   const [email, setEmail] = useState("");
   const [state, setState] = useState<"idle" | "saving" | "done" | "error">("idle");
@@ -95,9 +102,11 @@ export function FareWatchCard({
             <p className="text-sm font-bold text-navy">We will keep an eye on this route</p>
             <p className="mt-1 text-xs text-muted-foreground">
               If the {fromName} to {toName} fare drops below{" "}
-              {typeof baselinePrice === "number"
-                ? formatMoney(baselinePrice, baselineCurrency ?? "USD")
-                : "the current price"}
+              {typeof shownBaseline === "number"
+                ? formatMoney(shownBaseline, baselineCurrency ?? "USD")
+                : hideBaselineInText && typeof baselinePrice === "number"
+                  ? "the lowest fare shown above"
+                  : "the current price"}
               , we will email you. Fares are per person and subject to availability and change.
             </p>
           </div>
@@ -126,9 +135,11 @@ export function FareWatchCard({
             : "mt-1 text-xs text-muted-foreground"
         }
       >
-        {typeof baselinePrice === "number"
-          ? `We will email you if the ${fromName} to ${toName} fare drops below ${formatMoney(baselinePrice, baselineCurrency ?? "USD")}.`
-          : `We will email you if we see a lower fare from ${fromName} to ${toName}.`}
+        {typeof shownBaseline === "number"
+          ? `We will email you if the ${fromName} to ${toName} fare drops below ${formatMoney(shownBaseline, baselineCurrency ?? "USD")}.`
+          : hideBaselineInText && typeof baselinePrice === "number"
+            ? `We will email you if the ${fromName} to ${toName} fare drops below the lowest fare shown above.`
+            : `We will email you if we see a lower fare from ${fromName} to ${toName}.`}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <input

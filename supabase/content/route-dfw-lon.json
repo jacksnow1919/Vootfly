@@ -1,0 +1,104 @@
+{
+  "_note": "Stored copy for the seo_pages row /flights/dfw/lon/dallas-to-london/ (strict template). Fares, dates and airlines from searches come from the live fare snapshot at render time. Route facts appear only in items with a `verified` block (official sources plus check date, approved by the owner 14 Nov 2026); everything else must hold no prices, numbers or route facts (checked by src/lib/route-content-guard.test.ts).",
+  "page_type": "route",
+  "from_code": "dfw",
+  "to_code": "lon",
+  "cabin": "economy",
+  "meta_title": "Dallas to London Flights (DFW to London) | VootFly",
+  "meta_description": "Search Dallas to London flights from DFW. See real fares with their travel dates and check time, and have a VootFly advisor confirm before you pay.",
+  "content_json": {
+    "template": 2,
+    "heading": "Dallas to London flights",
+    "intro": "Search flights from Dallas (DFW) to London. When we have a recent fare check for this route, you see the fares we found with the travel dates, the passengers they are for and when we checked them. A VootFly advisor confirms your fare and seat before you pay.",
+    "sections": [
+      {
+        "title": "How to read the fares on this page",
+        "body": "Every fare on this page comes from a real search we ran with our flight supplier. Next to the price you can see who it is for, the travel dates and when we checked it. Fares change often, so treat them as a guide to what this route has recently cost, not a price we can hold for you.\n\nIf our last check is too old, we hide the prices rather than show an out-of-date number. Use the search box above to see fares for your own dates."
+      },
+      {
+        "title": "Choosing your London airport",
+        "body": "The London airport you fly into can change both the fare and your journey into the city. The search box above starts with London. To compare a particular airport, type its name or code in the To box and search again."
+      },
+      {
+        "title": "Booking with a VootFly advisor",
+        "body": "A VootFly advisor confirms the fare and seat before you pay. If you would rather talk it through, call us and an advisor can search this route with you."
+      },
+      {
+        "title": "Nonstop flights from Dallas to London Heathrow",
+        "body": "American Airlines and British Airways both fly nonstop between Dallas Fort Worth (DFW) and London Heathrow (LHR). At Heathrow, American Airlines uses Terminal 3 and British Airways uses Terminal 5 for these flights. At DFW, British Airways uses Terminal D, while American Airlines' London flights can leave from different terminals, so check your gate before you travel.",
+        "verified": {
+          "checked_at": "2026-11-13",
+          "sources": [
+            {
+              "label": "DFW Airport departures to London Heathrow",
+              "url": "https://www.dfwairport.com/flights/?airportIata=LHR"
+            },
+            {
+              "label": "DFW Airport airline gates",
+              "url": "https://www.dfwairport.com/explore/plan/airlines/"
+            },
+            {
+              "label": "Heathrow: American Airlines flight from Dallas",
+              "url": "https://www.heathrow.com/arrivals/terminal-3/flight-details/AA050"
+            },
+            {
+              "label": "Heathrow: British Airways flight from Dallas",
+              "url": "https://www.heathrow.com/arrivals/terminal-5/flight-details/BA192"
+            },
+            {
+              "label": "Heathrow: American Airlines flight to Dallas",
+              "url": "https://www.heathrow.com/departures/terminal-3/flight-details/AA051"
+            },
+            {
+              "label": "Heathrow: British Airways flight to Dallas",
+              "url": "https://www.heathrow.com/departures/terminal-5/flight-details/BA193"
+            }
+          ]
+        }
+      }
+    ],
+    "faqs": [
+      {
+        "q": "How current are the Dallas to London fares on this page?",
+        "a": "Each fare shows the date and time we checked it. If our latest check is too old, we hide the prices and ask you to search live instead, so an out-of-date fare is never shown as current."
+      },
+      {
+        "q": "Why can the price change when I search?",
+        "a": "Airlines change fares and seat availability throughout the day, and a fare depends on your travel dates, the number of travellers and the fare rules. A live search shows what is on sale for your dates right now."
+      },
+      {
+        "q": "Is the fare shown for one person or for my whole group?",
+        "a": "Each fare on this page states the passengers it was checked for. In a live search you choose the number of travellers before you search."
+      },
+      {
+        "q": "Can I search a specific London airport?",
+        "a": "Yes. Type the airport name or code in the To box of the search above and search again to compare it with your other options."
+      },
+      {
+        "q": "Does an advisor confirm my fare before I pay?",
+        "a": "Yes. A VootFly advisor confirms the fare and seat before you pay. You can also call us to book with an advisor."
+      },
+      {
+        "q": "Which airlines fly nonstop from Dallas to London?",
+        "a": "American Airlines and British Airways fly nonstop from Dallas Fort Worth (DFW) to London Heathrow (LHR). The fares on this page come from one search and may not include every nonstop flight, so search your dates to compare them.",
+        "verified": {
+          "checked_at": "2026-11-13",
+          "sources": [
+            {
+              "label": "DFW Airport departures to London Heathrow",
+              "url": "https://www.dfwairport.com/flights/?airportIata=LHR"
+            },
+            {
+              "label": "Heathrow: American Airlines flight from Dallas",
+              "url": "https://www.heathrow.com/arrivals/terminal-3/flight-details/AA050"
+            },
+            {
+              "label": "Heathrow: British Airways flight from Dallas",
+              "url": "https://www.heathrow.com/arrivals/terminal-5/flight-details/BA192"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -459,6 +459,28 @@ export async function runPkfareSearch(query: PkfareSearchQuery): Promise<PkfareN
   return firstWithFares(runs);
 }
 
+/**
+ * Every live supplier, waited for and combined (14 Nov 2026, "Fix B"). For the route
+ * page fare check only, where speed does not matter: the customer search above keeps
+ * the owner's first-with-fares rule. firstWithFares let the fastest supplier win, and
+ * on Dallas to London that was MContent, whose cheapest 40 fares were all one-stop, so
+ * Duffel's nonstop fares were never seen. A supplier that fails is skipped; if every
+ * one fails, the first error is thrown.
+ */
+export async function runAllSuppliers(query: PkfareSearchQuery): Promise<PkfareNormalisedFare[]> {
+  if (dateOutOfProviderRange(query.departDate) || dateOutOfProviderRange(query.returnDate)) return [];
+  const { liveFareProviders } = await import("./fare-provider.server");
+  const { pausedProviders } = await import("./provider-control.server");
+  const paused = await pausedProviders();
+  const providers = liveFareProviders().filter((p) => !paused.has(p));
+  if (providers.length === 0) return [];
+  const settled = await Promise.allSettled(providers.map((p) => runOneSupplier(p, query)));
+  const fares = settled.flatMap((s) => (s.status === "fulfilled" ? s.value : []));
+  const failures = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected");
+  if (!fares.length && failures.length === settled.length) throw failures[0]!.reason;
+  return fares;
+}
+
 /** One supplier's search, with every fare tagged with that supplier. */
 async function runOneSupplier(
   supplier: "duffel" | "mcontent" | "pkfare",

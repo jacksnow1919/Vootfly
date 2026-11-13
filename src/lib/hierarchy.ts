@@ -190,6 +190,11 @@ export type FareSnapshot = {
      * asked for. Preserved from 2026-09-16 so a returned-vs-requested
      * mismatch is visible in stored data instead of silently accepted. */
     cabin?: string;
+    /** Supplier that returned this fare (14 Nov 2026). */
+    supplier?: string;
+    /** Airlines flying the outbound journey when none of them sells the fare, e.g. ["AA"]
+     * on a fare sold by Iberia (14 Nov 2026). From the supplier's segment data. */
+    operated_by?: string[];
   }[];
   /** Set when any returned fare's cabin did not match the requested cabin. */
   cabin_mismatch?: { requested: string; returned: string[] };
@@ -201,6 +206,13 @@ export type FareSnapshot = {
   by_month_fetched_at?: string;
   fetched_at: string;
   source: "pkfare" | "duffel" | "mcontent";
+  /** Adults the supplier search was run for (recorded from 13 Nov 2026; older snapshots lack it). */
+  adults?: number;
+  /** Round trip or one way, as searched (recorded from 13 Nov 2026). */
+  trip?: "round_trip" | "one_way";
+  /** The airport codes the supplier search actually used, e.g. DFW to LHR for a
+   * Dallas to London page (recorded from 13 Nov 2026). */
+  searched?: { origin: string; destination: string };
 };
 
 export const SNAPSHOT_MAX_AGE_DAYS = 7;
@@ -209,6 +221,53 @@ export function snapshotIsFresh(fetchedAt: string | null | undefined, now = Date
   if (!fetchedAt) return false;
   const t = Date.parse(fetchedAt);
   return Number.isFinite(t) && now - t < SNAPSHOT_MAX_AGE_DAYS * 86_400_000;
+}
+
+/** "2026-12-28" -> "Dec 28, 2026", read as a calendar day in UTC so the server and
+ * a browser in any time zone print the same day (13 Nov 2026). */
+export function formatUtcDay(iso: string): string {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+}
+
+/** Check time with its time zone: "Nov 13, 2026, 2:05 PM UTC". */
+export function formatUtcCheckTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : `${d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC`;
+}
+
+/**
+ * Strict "may we show this price" check (added 13 Nov 2026), used by route pages
+ * on the strict template (content_json.template === 2). A price is shown only when
+ * every fact needed to describe it is in the stored supplier result: a real
+ * amount in USD (what Price converts from), the passenger count, the travel
+ * dates, and a check date under SNAPSHOT_MAX_AGE_DAYS old with a departure that
+ * has not already passed. Anything missing means no price, never a filled gap.
+ */
+export function isLiveSnapshot(
+  s: FareSnapshot | null | undefined,
+  now = Date.now(),
+): s is FareSnapshot & {
+  lowest: NonNullable<FareSnapshot["lowest"]> & { depart_date: string };
+  adults: number;
+} {
+  const low = s?.lowest;
+  if (!s || !low) return false;
+  if (!(typeof low.amount === "number" && low.amount > 0) || low.currency !== "USD") return false;
+  if (!(typeof s.adults === "number" && s.adults > 0)) return false;
+  if (!low.depart_date || !snapshotIsFresh(s.fetched_at, now)) return false;
+  if (s.trip === "round_trip" && !low.return_date) return false;
+  const today = new Date(now).toISOString().slice(0, 10);
+  return low.depart_date.slice(0, 10) >= today;
 }
 
 /**

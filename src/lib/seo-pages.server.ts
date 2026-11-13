@@ -2,6 +2,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { routePath, snapshotIsFresh, type Cabin, type PlaceMap, type Place, type FareSnapshot } from "@/lib/hierarchy";
+import { findStoredTextViolations, isStrictTemplate } from "@/lib/route-content-guard";
 
 export const QA_PUBLISH_THRESHOLD = 85;
 
@@ -103,6 +104,9 @@ export const fareSnapshotSchema = z.object({
         return_date: z.string().optional(),
         stops: z.number().int().min(0).optional(),
         duration_minutes: z.number().int().positive().optional(),
+        cabin: z.string().max(30).optional(),
+        supplier: z.string().max(20).optional(),
+        operated_by: z.array(z.string().min(2).max(3)).max(4).optional(),
       }),
     )
     .max(50)
@@ -110,6 +114,12 @@ export const fareSnapshotSchema = z.object({
   by_month: z.array(z.object({ month: z.string(), lowest: z.number().positive(), currency: z.string().length(3) })).max(12).optional(),
   fetched_at: z.string().datetime(),
   source: z.enum(["pkfare", "duffel", "mcontent"]),
+  // What the search was for (13 Nov 2026), so a page can say who a fare is for.
+  adults: z.number().int().positive().optional(),
+  trip: z.enum(["round_trip", "one_way"]).optional(),
+  searched: z
+    .object({ origin: z.string().min(3).max(4), destination: z.string().min(3).max(4) })
+    .optional(),
 });
 
 export const pageUpsertSchema = z.object({
@@ -191,6 +201,30 @@ export async function upsertPages(items: PageUpsert[]) {
       .maybeSingle();
 
     const content_json = p.content_json ?? (existing?.content_json as Record<string, unknown> | undefined) ?? {};
+
+    // Strict template pages (content_json.template === 2, 13 Nov 2026) may not store
+    // prices, numbers or nonstop claims in their copy: every such figure must come
+    // from the live fare snapshot at render time. Refuse the write rather than
+    // save copy that will go stale. Other pages are not checked here.
+    if (isStrictTemplate(content_json)) {
+      const violations = findStoredTextViolations({
+        meta_title: p.meta_title,
+        meta_description: p.meta_description,
+        content_json,
+      });
+      if (violations.length) {
+        results.push({
+          path,
+          ok: false,
+          error: `strict page copy holds ${violations.length} number or price claim(s): ${violations
+            .slice(0, 5)
+            .map((v) => `${v.field} "${v.match}" (${v.reason.split(" (")[0]})`)
+            .join("; ")}`,
+        });
+        continue;
+      }
+    }
+
     const qa_score = p.qa_score ?? existing?.qa_score ?? null;
     const fare_snapshot_at = p.fare_snapshot?.fetched_at ?? existing?.fare_snapshot_at ?? null;
     let status = p.status ?? evaluateStatus({ page_type: p.page_type, content_json, qa_score, fare_snapshot_at });
@@ -279,7 +313,16 @@ export async function applyFareSnapshot(u: FareUpdate) {
         error: `held back: $${newLowest} is ${check.ratio?.toFixed(2)}x the usual $${check.usual} for this route` };
     }
   }
-  const status = page.status === "expired" ? "expired" : evaluateStatus({ page_type: page.page_type, content_json: page.content_json, qa_score: page.qa_score, fare_snapshot_at: u.snapshot.fetched_at });
+  // Status lock (14 Nov 2026): a fare refresh never changes a pending page's status.
+  // Pending means the owner has not approved the page; before this, the first refresh
+  // re-ran the publish gate on it, which would have published Miami to Paris and Seattle
+  // to London (content and a QA score already in place) without approval and past the
+  // daily limit, and made Dallas to London public as noindex. Publishing stays a
+  // deliberate upsert with status "published".
+  const status =
+    page.status === "expired" || page.status === "pending"
+      ? page.status
+      : evaluateStatus({ page_type: page.page_type, content_json: page.content_json, qa_score: page.qa_score, fare_snapshot_at: u.snapshot.fetched_at });
 
   // Cost-conscious monthly-data preservation (2026-09-16). W6 refreshes with
   // months=0 deliberately -- 1 provider call per page instead of 4 -- to keep
@@ -512,13 +555,24 @@ function iataCandidates(places: PlaceMap, p: Place): string[] {
   return [...own, ...kids.slice(0, 2)];
 }
 
+/**
+ * Airlines that actually fly the outbound journey, when none of them is the airline
+ * selling the fare (14 Nov 2026). A fare sold by Iberia on an American Airlines nonstop
+ * is real, but labelled only "Iberia, nonstop" it reads as an Iberia nonstop; the page
+ * shows "operated by" with it. Read from the supplier's own segment data, never guessed.
+ */
+function operatedBy(f: { carrierCode: string; segments?: { carrier: string; operating_carrier?: string }[] }) {
+  const ops = [...new Set((f.segments ?? []).map((sg) => sg.operating_carrier ?? sg.carrier).filter(Boolean))];
+  return ops.length && !ops.includes(f.carrierCode) ? { operated_by: ops } : {};
+}
+
 export async function lookupFareSnapshot(q: FareLookup) {
   const places = await loadPlacesAdmin();
   const from = places[q.from_code];
   const to = places[q.to_code];
   if (!from || !to) return { ok: false as const, error: "unknown from_code or to_code" };
 
-  const { runPkfareSearch } = await import("@/lib/pkfare.server");
+  const { runAllSuppliers } = await import("@/lib/pkfare.server");
   // Map the page's cabin to PKFARE's cabin value.
   //
   // FIXED 2026-09-16. This line previously read:
@@ -541,14 +595,16 @@ export async function lookupFareSnapshot(q: FareLookup) {
   const depart = q.depart_date ?? isoPlusDays(today, 45);
   const ret = q.return_date === null ? undefined : (q.return_date ?? isoPlusDays(new Date(depart), 7));
 
-  type Fare = Awaited<ReturnType<typeof runPkfareSearch>>[number];
+  type Fare = Awaited<ReturnType<typeof runAllSuppliers>>[number];
   const search = async (o: string, d: string, departDate: string, returnDate?: string): Promise<Fare[]> => {
-    const params = { origin: o, destination: d, departDate, returnDate, cabinClass, adults: 1, solutions: 40, currency: q.currency } as const;
-    // Provider is chosen inside runPkfareSearch (Duffel since 31 Oct 2026 while
-    // PKFARE is down; see fare-provider.server.ts). Older note: (Duffel removed 2026-09-07 after
-    // repeatedly hitting rate_limit_exceeded on this account).
+    // Fix B (14 Nov 2026): every live supplier is asked and waited for, and each keeps
+    // up to 1,000 fares rather than its cheapest 40. Before this the fastest supplier
+    // won and only its 40 cheapest fares were kept, which on Dallas to London left
+    // nothing but one-stop fares although American and British Airways nonstops were
+    // in both suppliers' answers (MContent's first nonstop was price rank 60).
+    const params = { origin: o, destination: d, departDate, returnDate, cabinClass, adults: 1, solutions: 1000, currency: q.currency } as const;
     try {
-      return await runPkfareSearch(params);
+      return await runAllSuppliers(params);
     } catch (e) {
       console.warn("[fare-lookup] PKFARE error", o, d, departDate, (e as Error).message);
       return [];
@@ -560,11 +616,17 @@ export async function lookupFareSnapshot(q: FareLookup) {
   const toCodes = iataCandidates(places, to);
   let fares: Fare[] = [];
   let calls = 0;
+  // The airport pair that actually returned the fares (13 Nov 2026), so a page can
+  // name it. Recorded only when fares came back.
+  let searched: { origin: string; destination: string } | undefined;
   outer: for (const o of fromCodes) {
     for (const d of toCodes) {
       fares = await search(o, d, depart, ret);
       calls++;
-      if (fares.length) break outer;
+      if (fares.length) {
+        searched = { origin: o, destination: d };
+        break outer;
+      }
       if (calls >= 4) break outer;
     }
   }
@@ -613,13 +675,31 @@ export async function lookupFareSnapshot(q: FareLookup) {
   // stops) of a fare already selected. A route where PKFARE genuinely only
   // returned one airline still correctly shows one airline -- this does
   // not invent carriers that were not in the results.
+  //
+  // 14 Nov 2026: the overall cheapest fare and each airline's cheapest NONSTOP fare are
+  // taken first, so a nonstop that costs more than the cheapest one-stop fares is still
+  // shown, then the fastest journey, then each airline's cheapest fare as before.
   const seenAirlines = new Set<string>();
   const selected: Fare[] = [];
+  const take = (f: Fare | undefined) => {
+    if (f && selected.length < 10 && !selected.includes(f)) selected.push(f);
+  };
+  take(low);
+  const seenNonstop = new Set<string>();
+  for (const f of sorted) {
+    const key = f.carrierCode || f.airline;
+    if (f.stops === 0 && key && !seenNonstop.has(key)) {
+      seenNonstop.add(key);
+      take(f);
+    }
+  }
+  take([...fares].sort((a, b) => a.durationMinutes - b.durationMinutes || a.price - b.price)[0]);
+  for (const f of selected) seenAirlines.add(f.carrierCode || f.airline);
   for (const f of sorted) {
     const key = f.carrierCode || f.airline;
     if (key && !seenAirlines.has(key)) {
       seenAirlines.add(key);
-      selected.push(f);
+      take(f);
     }
     if (selected.length >= 10) break;
   }
@@ -644,12 +724,18 @@ export async function lookupFareSnapshot(q: FareLookup) {
       amount: f.price, currency: f.currency, airline: f.airline, airline_code: f.carrierCode,
       depart_date: f.departDate, ...(ret ? { return_date: ret } : {}), stops: f.stops, duration_minutes: f.durationMinutes,
       ...(f.cabin ? { cabin: f.cabin } : {}),
+      ...(f.supplier ? { supplier: f.supplier } : {}),
+      ...operatedBy(f),
     })),
     ...(byMonth.length ? { by_month: byMonth } : {}),
     fetched_at: new Date().toISOString(),
     // Which supplier really returned the headline fare (each fare carries its own tag
     // since Duffel and MContent are searched side by side, 1 Nov 2026).
     source: low?.supplier ?? (await import("@/lib/fare-provider.server")).activeFareProvider(),
+    // What was searched (13 Nov 2026): the search above always asks for 1 adult.
+    adults: 1,
+    trip: ret ? ("round_trip" as const) : ("one_way" as const),
+    ...(searched ? { searched } : {}),
   };
 
   let applied: Awaited<ReturnType<typeof applyFareSnapshot>> | null = null;

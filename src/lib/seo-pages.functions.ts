@@ -114,7 +114,15 @@ export const getRoutePage = createServerFn({ method: "GET" })
     const to = places[data.to];
     if (!from || !to) return null;
     const canonicalPath = routePath(places, from.code, to.code, data.cabin)!;
-    const { data: row } = await publicClient()
+    // Local preview of pages that are not public yet (13 Nov 2026). The public key
+    // cannot read a pending row, so it 404s locally as well as live. Only on the Vite
+    // dev server and only with ROUTE_PREVIEW=1 set locally; import.meta.env.DEV is
+    // false in every production build, so the live site never takes this branch.
+    const preview = import.meta.env.DEV && process.env["ROUTE_PREVIEW"] === "1";
+    const pageClient = preview
+      ? (await import("@/integrations/supabase/client.server")).supabaseAdmin
+      : publicClient();
+    const { data: row } = await pageClient
       .from("seo_pages")
       .select(PAGE_COLUMNS)
       .eq("page_type", "route")

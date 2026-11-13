@@ -11,7 +11,14 @@
  * See docs/VOOTFLY-STRATEGY.md, section 5.
  */
 
-import { formatMoney, placeLabel, type FareSnapshot, type Place } from "@/lib/hierarchy";
+import {
+  formatMoney,
+  formatUtcCheckTime,
+  formatUtcDay,
+  placeLabel,
+  type FareSnapshot,
+  type Place,
+} from "@/lib/hierarchy";
 import { airlineName } from "@/lib/airline-names";
 
 /** "2026-10-29T09:32:18Z" -> "Oct 29, 2026". Falls back to the raw string. */
@@ -84,4 +91,45 @@ export function buildRouteAnswer(
   }
 
   return detail ? { headline, detail } : { headline };
+}
+
+/**
+ * Strict-template answer (13 Nov 2026). Only for a snapshot that passed
+ * isLiveSnapshot, and it states everything a price needs to mean something:
+ * the currency, the passenger count, the trip type, the travel dates, the
+ * airports searched and the check time. "economy" is said only when the
+ * supplier itself returned the fare as economy.
+ */
+export function buildStrictRouteAnswer(
+  from: Place,
+  to: Place,
+  snapshot: FareSnapshot & {
+    lowest: NonNullable<FareSnapshot["lowest"]> & { depart_date: string };
+    adults: number;
+  },
+  places: Record<string, Place>,
+): RouteAnswer {
+  const low = snapshot.lowest;
+  const airportName = (code: string | undefined, fallback: Place) => {
+    const p = code ? Object.values(places).find((x) => x.iata === code) : undefined;
+    return p ? placeLabel(p) : placeLabel(fallback);
+  };
+  const fromLabel = airportName(snapshot.searched?.origin, from);
+  const toLabel = snapshot.searched?.destination
+    ? `${airportName(snapshot.searched.destination, to)}${to.level === "metro" && !to.single_airport ? ` in ${to.name}` : ""}`
+    : placeLabel(to);
+  const match = (snapshot.fares ?? []).find(
+    (f) => f.amount === low.amount && (f.airline_code ?? null) === (low.airline_code ?? null),
+  );
+  const economy = match?.cabin && /^econom/i.test(match.cabin) ? " economy" : "";
+  const trip = snapshot.trip === "one_way" || !low.return_date ? "one-way" : "round-trip";
+  const airlineLabel = airlineName(low.airline ?? low.airline_code);
+  const pax = `${snapshot.adults} adult${snapshot.adults === 1 ? "" : "s"}`;
+  const dates = low.return_date
+    ? `departing ${formatUtcDay(low.depart_date)} and returning ${formatUtcDay(low.return_date)}`
+    : `departing ${formatUtcDay(low.depart_date)}`;
+  return {
+    headline: `The lowest ${trip}${economy} fare we found from ${fromLabel} to ${toLabel} was ${formatMoney(low.amount, "USD")} (USD) for ${pax}${airlineLabel ? ` on ${airlineLabel}` : ""}, ${dates}.`,
+    detail: `Checked ${formatUtcCheckTime(snapshot.fetched_at)}. Fares change often, so search your dates for today's price.`,
+  };
 }

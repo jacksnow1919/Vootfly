@@ -61,8 +61,13 @@ export function routePageHead(cabin: Cabin) {
       storedTitle && lowestNow
         ? storedTitle.includes(formatMoney(lowestNow.amount, lowestNow.currency))
         : false;
-    const title =
-      storedTitle && (!storedQuotesAPrice || storedMatchesRealFare)
+    // Strict template pages (content_json.template === 2, 13 Nov 2026) never put a
+    // price in the title: a title cannot carry the dates, passenger count and check
+    // time a price needs. Their stored title holds no price (route-content-guard.ts).
+    const strict = (page.content_json as { template?: unknown } | null)?.template === 2;
+    const title = strict
+      ? (storedTitle ?? defaultRouteTitle(places, from.code, to.code, cabin, null))
+      : storedTitle && (!storedQuotesAPrice || storedMatchesRealFare)
         ? storedTitle
         : defaultRouteTitle(places, from.code, to.code, cabin, lowestNow);
     const description =
