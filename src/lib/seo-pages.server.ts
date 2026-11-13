@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { routePath, snapshotIsFresh, type Cabin, type PlaceMap, type Place, type FareSnapshot } from "@/lib/hierarchy";
 import { findStoredTextViolations, isStrictTemplate } from "@/lib/route-content-guard";
+import { pickScheduledRefresh, statusAfterFareRefresh, statusForUpsert } from "@/lib/page-status-rules";
 
 export const QA_PUBLISH_THRESHOLD = 85;
 
@@ -227,7 +228,10 @@ export async function upsertPages(items: PageUpsert[]) {
 
     const qa_score = p.qa_score ?? existing?.qa_score ?? null;
     const fare_snapshot_at = p.fare_snapshot?.fetched_at ?? existing?.fare_snapshot_at ?? null;
-    let status = p.status ?? evaluateStatus({ page_type: p.page_type, content_json, qa_score, fare_snapshot_at });
+    // An existing pending page stays pending unless the request sets a status (14 Nov 2026).
+    let status: "pending" | "published" | "noindex" | "expired" = statusForUpsert(p.status, existing?.status, () =>
+      evaluateStatus({ page_type: p.page_type, content_json, qa_score, fare_snapshot_at }),
+    );
 
     // Daily publish cap (MAX_PAGES_PER_DAY). Only gates a page that is
     // newly becoming published here -- a page that was already published
@@ -319,10 +323,9 @@ export async function applyFareSnapshot(u: FareUpdate) {
   // to London (content and a QA score already in place) without approval and past the
   // daily limit, and made Dallas to London public as noindex. Publishing stays a
   // deliberate upsert with status "published".
-  const status =
-    page.status === "expired" || page.status === "pending"
-      ? page.status
-      : evaluateStatus({ page_type: page.page_type, content_json: page.content_json, qa_score: page.qa_score, fare_snapshot_at: u.snapshot.fetched_at });
+  const status = statusAfterFareRefresh(page.status, () =>
+    evaluateStatus({ page_type: page.page_type, content_json: page.content_json, qa_score: page.qa_score, fare_snapshot_at: u.snapshot.fetched_at }),
+  );
 
   // Cost-conscious monthly-data preservation (2026-09-16). W6 refreshes with
   // months=0 deliberately -- 1 provider call per page instead of 4 -- to keep
@@ -743,6 +746,45 @@ export async function lookupFareSnapshot(q: FareLookup) {
     applied = await applyFareSnapshot({ from_code: q.from_code, to_code: q.to_code, cabin: q.cabin, snapshot });
   }
   return { ok: true as const, from: from.iata, to: to.iata, provider_calls: calls, result_count: fares.length, snapshot, applied };
+}
+
+/**
+ * Hands-free fare refresh (14 Nov 2026), run by the Cloudflare Cron Trigger every 30
+ * minutes (vite.config.ts, src/tasks/fare-refresh.ts) in place of the n8n W6 workflow.
+ *
+ * Each run checks at most ONE published route page whose fare is over 20 hours old
+ * (pickScheduledRefresh), because one fare check already uses more CPU than the free
+ * Workers plan's per-run allowance; one page a run keeps each run as small as possible.
+ * Pending pages are never picked, and the refresh's own status lock (applyFareSnapshot)
+ * would keep them pending even if they were.
+ */
+export async function runScheduledFareRefresh(now = Date.now()) {
+  const { data, error } = await supabaseAdmin
+    .from("seo_pages")
+    .select("path, page_type, status, from_code, to_code, cabin, fare_snapshot_at")
+    .eq("page_type", "route")
+    .eq("status", "published")
+    .limit(1000);
+  if (error) return { ok: false as const, error: error.message };
+  const page = pickScheduledRefresh(data ?? [], now);
+  if (!page) return { ok: true as const, refreshed: null, note: "no published page is due" };
+  const result = await lookupFareSnapshot({
+    from_code: page.from_code!,
+    to_code: page.to_code!,
+    cabin: (page.cabin ?? "economy") as Cabin,
+    months: 0,
+    apply: true,
+  });
+  const summary = {
+    ok: result.ok,
+    refreshed: page.path,
+    fares: result.ok ? result.result_count : 0,
+    lowest: result.ok ? (result.snapshot.lowest?.amount ?? null) : null,
+    applied: result.ok ? result.applied : null,
+    ...(result.ok ? {} : { error: result.error }),
+  };
+  console.info("[fare-refresh]", JSON.stringify(summary));
+  return summary;
 }
 
 // ---------------------------------------------------------------------------
