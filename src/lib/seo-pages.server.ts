@@ -7,67 +7,6 @@ import { pickScheduledRefresh, statusAfterFareRefresh, statusForUpsert } from "@
 
 export const QA_PUBLISH_THRESHOLD = 85;
 
-/**
- * Daily publish cap. Must not be increased automatically -- this is a
- * production safety limit, changed only by deliberate, explicit edit here.
- * The system is designed to support raising it later (2, 5, 10/day), but
- * the current production value stays 1 until explicitly changed.
- */
-export const MAX_PAGES_PER_DAY = 1;
-
-/**
- * Timezone the daily publish window is measured in. A single named
- * constant here (like QA_PUBLISH_THRESHOLD above) so the schedule can be
- * changed later without restructuring anything -- edit this one line.
- */
-export const PUBLISH_TIMEZONE = "America/New_York";
-
-/** Start of "today" in PUBLISH_TIMEZONE, as a UTC ISO string, for querying published_at. */
-function startOfPublishDayUtc(): string {
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: PUBLISH_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const y = parts.find((p) => p.type === "year")!.value;
-  const m = parts.find((p) => p.type === "month")!.value;
-  const d = parts.find((p) => p.type === "day")!.value;
-  // Midnight in PUBLISH_TIMEZONE, expressed as a UTC instant. Using the
-  // Intl offset trick rather than a timezone library, since this only
-  // needs one correct boundary per call, not general timezone math.
-  const localMidnightGuessUtc = new Date(`${y}-${m}-${d}T00:00:00Z`);
-  const offsetCheck = new Intl.DateTimeFormat("en-US", {
-    timeZone: PUBLISH_TIMEZONE,
-    timeZoneName: "shortOffset",
-  }).formatToParts(localMidnightGuessUtc);
-  const offsetStr = offsetCheck.find((p) => p.type === "timeZoneName")?.value ?? "GMT+0";
-  const offsetMatch = /GMT([+-]\d+)(?::(\d+))?/.exec(offsetStr);
-  const offsetHours = offsetMatch ? Number(offsetMatch[1]) : 0;
-  const offsetMinutes = offsetMatch?.[2] ? Number(offsetMatch[2]) : 0;
-  const offsetMs = (offsetHours * 60 + Math.sign(offsetHours || 1) * offsetMinutes) * 60_000;
-  return new Date(localMidnightGuessUtc.getTime() - offsetMs).toISOString();
-}
-
-/**
- * How many pages have genuinely gone live today, in PUBLISH_TIMEZONE.
- * Counts by published_at, not created_at/updated_at -- created_at would
- * miss a page that sat pending for days before finally clearing QA, and
- * updated_at would incorrectly count routine fare refreshes on pages
- * that were already published (see applyFareSnapshot below, which is
- * deliberately NOT gated by the daily limit -- refreshing an existing
- * page's fare isn't "publishing a new page").
- */
-export async function countPublishedToday(): Promise<number> {
-  const { count } = await supabaseAdmin
-    .from("seo_pages")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "published")
-    .gte("published_at", startOfPublishDayUtc());
-  return count ?? 0;
-}
-
 /** Shared-secret check for every /api/public/webhook/* handler (n8n only). */
 export function authorized(request: Request): boolean {
   const secret = process.env["N8N_WEBHOOK_SECRET"];
@@ -229,27 +168,11 @@ export async function upsertPages(items: PageUpsert[]) {
     const qa_score = p.qa_score ?? existing?.qa_score ?? null;
     const fare_snapshot_at = p.fare_snapshot?.fetched_at ?? existing?.fare_snapshot_at ?? null;
     // An existing pending page stays pending unless the request sets a status (14 Nov 2026).
-    let status: "pending" | "published" | "noindex" | "expired" = statusForUpsert(p.status, existing?.status, () =>
+    const status: "pending" | "published" | "noindex" | "expired" = statusForUpsert(p.status, existing?.status, () =>
       evaluateStatus({ page_type: p.page_type, content_json, qa_score, fare_snapshot_at }),
     );
 
-    // Daily publish cap (MAX_PAGES_PER_DAY). Only gates a page that is
-    // newly becoming published here -- a page that was already published
-    // before this call (e.g. a routine fare refresh landing on the same
-    // path) is exempt, since re-confirming an already-live page isn't
-    // "publishing" against today's count. Held pages stay at whatever
-    // status evaluateStatus would have given a fully-caught-up page
-    // (pending/noindex), to be reconsidered on a later run -- same as the
-    // spec's "leave remaining pages in QUEUED status".
     const isNewPublish = status === "published" && existing?.status !== "published";
-    let dailyLimitHeld = false;
-    if (isNewPublish) {
-      const publishedToday = await countPublishedToday();
-      if (publishedToday >= MAX_PAGES_PER_DAY) {
-        status = "pending";
-        dailyLimitHeld = true;
-      }
-    }
 
     const row: Database["public"]["Tables"]["seo_pages"]["Insert"] = {
       page_type: p.page_type,
@@ -263,7 +186,7 @@ export async function upsertPages(items: PageUpsert[]) {
       qa_score,
       status,
     };
-    if (isNewPublish && !dailyLimitHeld) row.published_at = new Date().toISOString();
+    if (isNewPublish) row.published_at = new Date().toISOString();
     if (p.meta_title) row.meta_title = p.meta_title;
     if (p.meta_description) row.meta_description = p.meta_description;
     if (p.legacy_slug) row.legacy_slug = p.legacy_slug;
@@ -280,7 +203,7 @@ export async function upsertPages(items: PageUpsert[]) {
     results.push(
       error
         ? { path, ok: false, error: error.message }
-        : { path, ok: true, status, ...(dailyLimitHeld ? { note: "MAX_PAGES_PER_DAY reached, held as pending" } : {}) },
+        : { path, ok: true, status },
     );
   }
   return results;
